@@ -1,0 +1,2 @@
+config: examples/synthetic/config.yaml
+output_dir: outputs/synthetic_run

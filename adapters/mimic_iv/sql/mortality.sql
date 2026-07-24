@@ -1,0 +1,1 @@
+-- MIMIC-IV mortality extraction placeholder.

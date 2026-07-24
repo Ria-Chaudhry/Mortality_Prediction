@@ -1,0 +1,7 @@
+encounter_id,age,sex,charlson_index,admission_source
+e1,72,F,4,ed
+e2,66,M,2,transfer
+e3,81,F,6,ed
+e4,55,M,1,clinic
+e5,61,F,3,ed
+e6,77,M,5,transfer

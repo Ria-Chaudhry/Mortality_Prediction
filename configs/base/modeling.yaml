@@ -1,0 +1,17 @@
+modeling:
+  seed: 20260724
+  cv:
+    n_splits: 5
+    group_column: patient_id
+    stratify: true
+  algorithms:
+    logistic_regression:
+      enabled: true
+      max_iter: 1000
+    random_forest:
+      enabled: false
+      n_estimators: 300
+feature_selection:
+  enabled: true
+  method: univariate
+  max_features: 200

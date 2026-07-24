@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+
+# Restricted or local data
+data/
+restricted/
+secure/
+local/
+*.parquet
+*.feather
+*.db
+*.sqlite
+
+# Generated outputs
+outputs/*
+!outputs/README.md
+!outputs/.gitkeep
+
+# OS and editor files
+.DS_Store
+.vscode/settings.json
+.idea/

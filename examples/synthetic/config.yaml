@@ -1,0 +1,15 @@
+dataset:
+  name: synthetic
+  adapter: generic_ehr
+  output_dir: outputs/synthetic_run
+paths:
+  encounters: encounters.csv
+  baseline: baseline.csv
+  events: events.csv
+  mortality: deaths.csv
+study:
+  landmark_hours: 24
+  min_age: 18
+modeling:
+  cv:
+    n_splits: 3

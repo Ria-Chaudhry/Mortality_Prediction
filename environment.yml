@@ -1,0 +1,17 @@
+name: clinical-domain-mortality-framework
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - numpy>=1.24
+  - pandas>=2.0
+  - pyyaml>=6.0
+  - jsonschema>=4.19
+  - scikit-learn>=1.3
+  - scipy>=1.10
+  - matplotlib>=3.7
+  - seaborn>=0.13
+  - pytest>=7.4
+  - pip
+  - pip:
+      - pytest-cov>=4.1

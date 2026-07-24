@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: Clinical Domain Mortality Framework
+message: If you use this framework, please cite the repository and associated manuscript.
+type: software
+authors:
+  - family-names: TBD
+    given-names: TBD
+repository-code: https://github.com/your-org/clinical-domain-mortality-framework
+license: MIT
+version: 0.1.0
+date-released: 2026-07-24

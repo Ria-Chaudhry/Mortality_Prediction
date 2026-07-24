@@ -1,0 +1,24 @@
+domains:
+  baseline:
+    description: Demographics, comorbidity, and admission context.
+    source_schema: baseline
+  physiological:
+    description: Measurements, labs, vitals, and other early physiological observations.
+    source_schema: events
+  treatment:
+    description: Medications, fluids, respiratory support, and other early treatments.
+    source_schema: events
+  procedures:
+    description: Early procedures and interventions.
+    source_schema: events
+domain_sets:
+  - name: baseline
+    domains: [baseline]
+  - name: physiological
+    domains: [baseline, physiological]
+  - name: treatment
+    domains: [baseline, treatment]
+  - name: procedures
+    domains: [baseline, procedures]
+  - name: all_domains
+    domains: [baseline, physiological, treatment, procedures]

@@ -1,0 +1,9 @@
+reporting:
+  precision:
+    metrics: 3
+    counts: 0
+  outputs:
+    tables: true
+    figures: true
+    manuscript: true
+    supplement: true

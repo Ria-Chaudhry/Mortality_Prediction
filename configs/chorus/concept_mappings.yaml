@@ -1,0 +1,6 @@
+measurement_domains:
+  physiological: []
+drug_domains:
+  treatment: []
+procedure_domains:
+  procedures: []

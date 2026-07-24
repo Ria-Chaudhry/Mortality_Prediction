@@ -1,0 +1,10 @@
+dataset:
+  name: mimic_iv
+  adapter: mimic_iv
+  connection_uri_env: MIMIC_IV_URI
+  output_dir: outputs/mimic_iv
+study:
+  landmark_hours: 24
+mappings:
+  item_mappings: configs/mimic_iv/item_mappings.yaml
+  admission_definitions: configs/mimic_iv/admission_definitions.yaml

@@ -1,0 +1,10 @@
+dataset:
+  name: generic_omop_site
+  adapter: generic_omop
+  connection_uri_env: OMOP_URI
+  output_dir: outputs/generic_omop
+omop:
+  cdm_schema: cdm
+  results_schema: results
+study:
+  landmark_hours: 24

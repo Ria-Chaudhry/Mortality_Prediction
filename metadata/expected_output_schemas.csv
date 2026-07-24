@@ -1,0 +1,4 @@
+artifact,required_columns
+predictions,encounter_id;patient_id;model_name;domain_set;y_true;y_score;fold
+metrics,model_name;domain_set;metric;estimate
+paired_differences,model_name;domain_set_a;domain_set_b;metric;estimate
