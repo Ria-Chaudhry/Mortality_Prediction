@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import importlib
-
+import importlib.util
 
 REQUIRED = ["numpy", "pandas", "yaml", "jsonschema", "sklearn"]
 

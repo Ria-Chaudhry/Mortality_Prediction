@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-
 STANDARD_SCHEMAS = {
     "encounters": ["encounter_id", "patient_id", "admit_time", "discharge_time"],
     "baseline": ["encounter_id"],

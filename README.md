@@ -29,6 +29,8 @@ This is not a single deployable mortality model. It is a reusable analysis frame
 
 ## Quick Start
 
+Supported Python versions: `>=3.10,<3.13`.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -41,6 +43,14 @@ Run the synthetic example:
 ```bash
 python scripts/reproduce_manuscript.py --config examples/synthetic/config.yaml --output-dir outputs/synthetic_run
 ```
+
+Run the full local verification gate before pushing:
+
+```bash
+make verify
+```
+
+`make verify` checks the environment, runs the tests, runs the synthetic pipeline twice, validates output schemas, and confirms deterministic outputs.
 
 ## Add a New Dataset
 

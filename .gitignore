@@ -28,6 +28,7 @@ local/
 outputs/*
 !outputs/README.md
 !outputs/.gitkeep
+site/
 
 # OS and editor files
 .DS_Store

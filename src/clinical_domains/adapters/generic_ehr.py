@@ -16,7 +16,7 @@ class GenericEHRAdapter(DatasetAdapter):
         self.config_dir = config_dir or Path.cwd()
 
     @classmethod
-    def from_config(cls, path: str | Path) -> "GenericEHRAdapter":
+    def from_config(cls, path: str | Path) -> GenericEHRAdapter:
         config_path = Path(path)
         return cls(load_yaml(config_path), config_path.parent)
 
