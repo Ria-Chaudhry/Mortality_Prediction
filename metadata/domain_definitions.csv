@@ -1,5 +1,0 @@
-domain,description,standard_source
-baseline,Demographics comorbidity and admission context,baseline
-physiological,Early measurements labs and vitals,events
-treatment,Early medications support and treatments,events
-procedures,Early procedures and interventions,events

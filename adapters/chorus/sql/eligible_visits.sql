@@ -1,2 +1,0 @@
--- CHoRUS OMOP eligible visits query placeholder.
--- Keep dataset-specific SQL outside the analytical core.

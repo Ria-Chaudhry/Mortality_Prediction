@@ -1,0 +1,29 @@
+features:
+  concept_count: 50
+  ranking: visit_prevalence
+  tie_break: normalized_concept_key
+  measurements:
+    statistics: [mean, max, min, sd, count, missing]
+    expected_count: 300
+    sd_ddof: 1
+    single_value_sd: 0.0
+    unit_policy: confirmed_rules
+    allowed_units:
+      default: [u]
+    conversions: {}
+  medications:
+    expected_count: 104
+    qualifying_semantics: [administration, prescription, order]
+    require_explicit_semantics: true
+    aggregates:
+      [any_drug_24h, unique_drug_count_24h, repeat_drug_exposure_count_24h,
+       time_to_first_drug_in_hours]
+  procedures:
+    expected_count: 103
+    qualifying_semantics: [performed, coded, claim, order]
+    require_explicit_semantics: true
+    aggregates:
+      [any_procedure_24h, unique_procedure_count_24h, procedure_count_total_24h]
+  forbidden_name_patterns:
+    [patient_id, visit_id, encounter_id, timestamp, datetime, death, outcome, discharge,
+     length_of_stay, los, prediction, probability, post_landmark, future]

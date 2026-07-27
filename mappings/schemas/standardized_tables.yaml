@@ -1,0 +1,9 @@
+patients: [patient_id, birth_datetime, sex, race, ethnicity]
+encounters: [visit_id, patient_id, start_datetime, end_datetime, visit_type, elective,
+  followup_end_datetime]
+deaths: [patient_id, death_datetime]
+diagnoses: [diagnosis_id, visit_id, patient_id, diagnosis_datetime, code, source_table]
+events: [event_id, source_visit_id, bridge_key, patient_id, event_datetime, concept_key,
+  concept_name, value, unit, source_table, semantics]
+bridge: [bridge_key, visit_id]
+metadata: [domain, concept_key, concept_name, source_table, semantics, unit]

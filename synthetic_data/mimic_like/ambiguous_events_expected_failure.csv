@@ -1,0 +1,2 @@
+labevent_id,hadm_id,bridge_key,subject_id,charttime,reason
+AMBIGUOUS,,,P_AMBIGUOUS,2020-01-01 10:00:00,fixture requires two overlapping visits and must hard fail

@@ -1,0 +1,29 @@
+evaluation:
+  classification_threshold: 0.5
+  calibration_bins: 10
+  decision_thresholds:
+    start: 0.01
+    stop: 0.50
+    step: 0.01
+  specificity_target: 0.90
+  top_risk_fraction: 0.10
+  bootstrap:
+    repetitions: 2000
+    seed: 20260727
+    confidence_level: 0.95
+    method: percentile
+    cluster: patient
+  selection_hierarchy: [auprc_desc, auroc_desc, brier_asc, frozen_model_order]
+  paired_comparisons:
+    - [baseline, baseline_measurements]
+    - [baseline, baseline_medications]
+    - [baseline, baseline_procedures]
+    - [baseline_measurements, baseline_measurements_medications]
+    - [baseline_medications, baseline_measurements_medications]
+    - [baseline_measurements, baseline_measurements_procedures]
+    - [baseline_procedures, baseline_measurements_procedures]
+    - [baseline_medications, baseline_medications_procedures]
+    - [baseline_procedures, baseline_medications_procedures]
+    - [baseline_measurements_medications, baseline_all_domains]
+    - [baseline_measurements_procedures, baseline_all_domains]
+    - [baseline_medications_procedures, baseline_all_domains]

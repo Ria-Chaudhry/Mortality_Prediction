@@ -1,5 +1,0 @@
-feature_name,description,type
-age,Age at admission,numeric
-sex,Recorded sex,categorical
-charlson_index,Charlson comorbidity index,numeric
-admission_source,Admission source,categorical

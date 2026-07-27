@@ -1,75 +1,158 @@
-# Clinical Domain Mortality Framework
+# Clinical-domain mortality prediction framework
 
-Dataset-agnostic framework for comparing the standalone and incremental prognostic value of early clinical domains for acute-care mortality prediction.
+This repository implements the study design in
+[`docs/pipeline_specification.pdf`](docs/pipeline_specification.pdf): predict death after a
+24-hour admission landmark and within 30 days of acute-care admission from baseline factors and
+first-24-hour measurement, medication, and procedure domains.
 
-This repository is structured to reproduce the CHoRUS analysis, support MIMIC-IV replication, and make it practical for new OMOP or non-OMOP EHR sites to run the same comparative clinical-domain workflow without changing analytical core code.
+CHoRUS is the primary development analysis. MIMIC-IV is an independently normalized and trained
+replication analysis. The datasets are never pooled: each has its own cohort, patients, folds,
+concept selections, preprocessing, models, predictions, and manifests. MIMIC-IV is therefore a
+replication of the domain-ranking pattern, not validation of a CHoRUS-trained model.
 
-## What This Is
+## What the pipeline runs
 
-This is not a single deployable mortality model. It is a reusable analysis framework that separates:
+One source-neutral engine applies adult, non-elective acute-care eligibility; creates the 24-hour
+landmark and verified 30-day outcome; derives prior-only, non-age-adjusted Charlson features;
+assigns patients to one deterministic five-fold partition; and prepares qualifying first-24-hour
+events.
 
-- dataset-specific extraction and harmonization;
-- standardized intermediate schemas;
-- feature construction by clinical domain;
-- fold-safe preprocessing, feature selection, and model fitting;
-- grouped validation and paired evaluation;
-- manuscript and supplement output generation.
+Inside each outer fold, the other four folds alone choose 50 concepts per domain and fit unit
+definitions, median imputation, one-hot encoding, variance filtering, and scaling. The selected
+definitions are applied to the held-out fold without refitting. Measurements produce 300 features,
+medications 104, and procedures 103. Eight matrices are evaluated with logistic regression,
+random forest, gradient boosting, and LightGBM: 160 fits per dataset and exactly 32 OOF
+probabilities per visit.
 
-## Repository Layers
+The pipeline saves numerical tables and plot-ready ROC, calibration, and decision-curve
+coordinates. It generates no plots.
 
-- `src/clinical_domains/core`: cohort logic, landmarks, outcomes, eligibility, audit, and validation.
-- `src/clinical_domains/adapters`: adapter interfaces and starter implementations.
-- `src/clinical_domains/features`: baseline, physiological, treatment, procedure, and matrix builders.
-- `src/clinical_domains/modeling`: algorithms, hyperparameters, grouped cross-validation, model selection, and prediction.
-- `src/clinical_domains/evaluation`: discrimination, calibration, threshold metrics, decision curves, top-risk analyses, and paired differences.
-- `src/clinical_domains/reporting`: tables, figures, manuscript outputs, and supplement outputs.
-- `configs`: reusable and dataset-specific configuration.
-- `schemas` and `metadata`: standardized contracts and dictionaries.
-- `examples/synthetic`: small safe data for end-to-end tests.
+## Clean-clone installation
 
-## Quick Start
-
-Supported Python versions: `>=3.10,<3.13`.
+Use Python 3.10-3.12:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
-pytest
+make install
+make lint
+make test
 ```
 
-Run the synthetic example:
+`requirements.lock` contains the same fully pinned versions installed by CI. The lock was tested,
+not synthesized as documentation.
+
+## Public synthetic demonstration
+
+No credential, database, protected resource, or network access is needed after dependencies are
+installed:
 
 ```bash
-python scripts/reproduce_manuscript.py --config examples/synthetic/config.yaml --output-dir outputs/synthetic_run
-```
-
-Run the full local verification gate before pushing:
-
-```bash
+make synthetic-run
 make verify
 ```
 
-`make verify` checks the environment, runs the tests, runs the synthetic pipeline twice, validates output schemas, and confirms deterministic outputs.
+This regenerates committed CHoRUS-like and MIMIC-like inputs, runs both adapters independently, and
+verifies aggregate schemas, design counts, expected summaries, and SHA-256 checksums. Source
+identifiers and OOF rows are written only under ignored `restricted_outputs/`.
 
-## Add a New Dataset
+## CHoRUS execution
 
-1. Start from `configs/generic_ehr/generic_ehr.example.yaml` or `configs/generic_omop/generic_omop.example.yaml`.
-2. Implement an adapter that produces the standardized schemas documented in `schemas/`.
-3. Keep SQL, item IDs, local code systems, and source-specific joins inside `adapters/`.
-4. Run `python scripts/validate_config.py --config <your-config.yaml>`.
-5. Run the pipeline with the same core scripts used for synthetic data.
-
-## Data Governance
-
-Patient-level restricted data must never be committed. Use local ignored paths such as `data/`, `restricted/`, or externally managed database connections. The committed example data in this repository is synthetic only.
-
-## Git Setup
-
-This folder is initialized as its own git repository. To push it:
+CHoRUS analysis requires authorized CHoRUS access and a site-confirmed mapping. Copy
+`configs/chorus.example.yaml`, replace the synthetic table/column mappings with the confirmed
+site mapping, change `backend` to `sql` when appropriate, and set only the named environment
+variable:
 
 ```bash
-git remote add origin <your-repo-url>
-git branch -M main
-git push -u origin main
+export CHORUS_DATABASE_URL='provided-outside-version-control'
+clinical-domain-mortality validate --config configs/chorus.site.yaml
+clinical-domain-mortality run --dataset chorus --config configs/chorus.site.yaml
 ```
+
+The adapter supports configurable OMOP-compatible person, visit, death, condition, measurement,
+drug exposure, procedure occurrence, observation, and bridge structures. A mapping may use direct
+visit, approved bridge, or patient-time linkage. Medication and procedure semantics remain the
+source semantics; an order is not silently converted to an administration or performed procedure.
+
+## MIMIC-IV execution
+
+MIMIC-IV results require credentialed access to MIMIC-IV. This repository contains no MIMIC data.
+Record the exact credentialed release version in a site config; the PDF does not identify a
+release number, so this repository does not invent one. Point `source.root` to a user-supplied
+local root containing the configured CSV, compressed CSV, or Parquet tables:
+
+```bash
+clinical-domain-mortality validate --config configs/mimic.site.yaml
+clinical-domain-mortality run --dataset mimic --config configs/mimic.site.yaml
+```
+
+The supplied mapping documents admissions, patients, death records, ICD diagnoses, laboratory
+events, prescriptions, and coded procedures. Alternative administration or performed-event
+sources require an explicit table mapping and matching semantics. Deterministic subsampling is
+configurable and occurs only inside the MIMIC run.
+
+## Configuration workflow
+
+Version-controlled scientific decisions live in:
+
+- `configs/cohort.yaml`: visit types, age, lookback, window, landmark, horizon, folds, seeds, and
+  restricted/public roots.
+- `configs/features.yaml`: selection count/ranking, units, semantics, feature definitions, expected
+  counts, and forbidden predictors.
+- `configs/models.yaml`: eight matrices, four estimators, frozen hyperparameters, threads, and
+  model order.
+- `configs/evaluation.yaml`: thresholds, calibration bins, top-risk fraction, 2,000 patient
+  bootstraps, decision thresholds, paired comparisons, and selection hierarchy.
+- Dataset configs: physical tables/columns, semantics, access method, optional paper expected
+  counts, and dataset version.
+
+Paper runs may set the PDF counts as validation targets (CHoRUS: 22,098 visits, 5,892 patients,
+1,004 deaths; MIMIC-IV: 23,000 visits, 10,009 patients, 819 deaths). They are not embedded in
+reusable cohort logic. A mismatch hard-fails and is reported honestly.
+
+## Stage order and commands
+
+The numbered scripts call the same package functions as the CLI:
+
+1. Validate source mapping and standardized schemas.
+2. Freeze the cohort, outcome, baseline, row order, and hashes.
+3. Create one patient-level five-fold assignment.
+4. Validate clinical-domain mappings and explicit semantics.
+5. Prepare qualifying first-24-hour events without global concept selection.
+6. Select concepts and construct features independently per training fold.
+7. Run all 160 outer-fold fits and validate OOF coverage.
+8. Build all public-safe aggregate analyses and manifests.
+
+Use `clinical-domain-mortality stage --stage N --config ...` or the corresponding script. Each
+stage reruns its prerequisites so discovery never silently becomes analysis.
+
+## Output boundary
+
+Public run directories contain attrition, fold summaries, selection audits where disclosure is
+allowed, pooled/fold performance, bootstrap intervals, paired comparisons, selected-model tables,
+ROC/calibration/decision-curve coordinates, and dataset/fold/domain/matrix/model/run manifests.
+See [`docs/output_dictionary.md`](docs/output_dictionary.md).
+
+Raw clinical data, dates, identifiers, fold assignments, prepared event rows, fitted artifacts,
+and patient-level OOF predictions are restricted. They are never required in a Git commit and are
+ignored by default. The framework cannot reproduce CHoRUS findings without authorized CHoRUS data,
+or MIMIC findings without the credentialed MIMIC release and confirmed configuration.
+
+## Architecture and methods traceability
+
+Adapters implement one field-level contract; common cohort, feature, modeling, evaluation, and
+audit modules consume only standardized tables. Read
+[`docs/source_adapter_contract.md`](docs/source_adapter_contract.md),
+[`docs/architecture.md`](docs/architecture.md), and
+[`docs/manuscript_methods_crosswalk.md`](docs/manuscript_methods_crosswalk.md).
+
+Reproducible code does not establish transportability, causality, or deployment readiness. The
+pooled-OOF 90%-specificity point is descriptive, not a prospectively validated operating
+threshold.
+
+## Citation and reuse
+
+Citation metadata is in `CITATION.cff`. Only authorship confirmed by the finalized specification
+is included.
+
+No license is granted for reuse or redistribution.

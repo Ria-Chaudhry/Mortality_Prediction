@@ -1,23 +1,31 @@
-from pathlib import Path
+from __future__ import annotations
 
-from clinical_domains.adapters.generic_ehr import GenericEHRAdapter
-from clinical_domains.core.cohort import build_cohort
-from clinical_domains.core.landmark import restrict_events_to_landmark
-from clinical_domains.core.outcomes import build_mortality_labels
-from clinical_domains.features.aggregation import aggregate_events
-from clinical_domains.features.matrices import build_feature_matrix
+import pandas as pd
+import pytest
+
+from clinical_domain_mortality.config import PROJECT_ROOT
+from clinical_domain_mortality.pipeline import run_pipeline, verify_run
 
 
-def test_synthetic_pipeline_builds_standard_matrix():
-    config = Path("examples/synthetic/config.yaml")
-    data = GenericEHRAdapter.from_config(config).extract_all()
-
-    cohort = build_cohort(data["encounters"])
-    events = restrict_events_to_landmark(data["events"], cohort, hours=24)
-    event_features = aggregate_events(events)
-    matrix = build_feature_matrix(cohort, data["baseline"], event_features)
-    labels = build_mortality_labels(cohort, data["mortality"])
-
-    assert len(matrix) == len(labels) == 6
-    assert "baseline__age" in matrix.columns
-    assert "physiological__heart_rate__mean" in matrix.columns
+@pytest.mark.slow
+def test_both_adapters_end_to_end(tmp_path):
+    public = tmp_path / "public"
+    restricted = tmp_path / "restricted"
+    chorus = run_pipeline(
+        PROJECT_ROOT / "configs" / "chorus.example.yaml", public, restricted
+    )
+    mimic = run_pipeline(
+        PROJECT_ROOT / "configs" / "mimic.example.yaml", public, restricted
+    )
+    assert chorus.run_manifest["dataset"] == "chorus"
+    assert mimic.run_manifest["dataset"] == "mimiciv"
+    for dataset in ("chorus", "mimiciv"):
+        predictions = pd.read_csv(
+            restricted / dataset / "oof_predictions_restricted.csv"
+        )
+        assert len(predictions) == 70 * 32
+        assert not predictions.duplicated(
+            ["cohort_visit_number", "matrix", "model"]
+        ).any()
+        assert predictions["probability"].between(0, 1).all()
+        verify_run(public / dataset)

@@ -1,0 +1,19 @@
+cohort:
+  acute_visit_types: [inpatient, observation, emergency]
+  excluded_elective_values: [true, "true", 1, elective]
+  min_age_years: 18
+  max_age_years: 120
+  landmark_hours: 24
+  predictor_window_hours: 24
+  outcome_horizon_days: 30
+  prior_lookback_days: 365
+  retain_short_visits: true
+  require_verified_followup: true
+  expected_counts: null
+folds:
+  count: 5
+  seed: 42
+  require_both_classes: true
+outputs:
+  public_root: outputs
+  restricted_root: restricted_outputs

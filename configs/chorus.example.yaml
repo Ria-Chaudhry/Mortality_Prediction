@@ -1,0 +1,91 @@
+dataset: chorus
+adapter: chorus
+source:
+  backend: files
+  root: synthetic_data/chorus_like
+  mapping_confirmed: true
+  database_url_env: CHORUS_DATABASE_URL
+  schema_env: CHORUS_SCHEMA
+  tables:
+    patients: person
+    encounters: visit_occurrence
+    deaths: death
+    diagnoses: condition_occurrence
+    measurements: measurement
+    medications: drug_exposure
+    procedures: procedure_occurrence
+    observations: observation
+    bridge: event_visit_bridge
+  columns:
+    patients:
+      patient_id: person_id
+      birth_datetime: birth_datetime
+      sex: sex
+      race: race
+      ethnicity: ethnicity
+    encounters:
+      visit_id: visit_occurrence_id
+      patient_id: person_id
+      start_datetime: visit_start_datetime
+      end_datetime: visit_end_datetime
+      visit_type: visit_type
+      elective: elective
+      followup_end_datetime: followup_end_datetime
+    deaths:
+      patient_id: person_id
+      death_datetime: death_datetime
+    diagnoses:
+      diagnosis_id: condition_occurrence_id
+      visit_id: visit_occurrence_id
+      patient_id: person_id
+      diagnosis_datetime: condition_start_datetime
+      code: condition_source_value
+    measurements:
+      event_id: measurement_id
+      source_visit_id: visit_occurrence_id
+      bridge_key: bridge_key
+      patient_id: person_id
+      event_datetime: measurement_datetime
+      concept_key: measurement_concept_id
+      concept_name: measurement_name
+      value: value_as_number
+      unit: unit_source_value
+      semantics: record_semantics
+    medications:
+      event_id: drug_exposure_id
+      source_visit_id: visit_occurrence_id
+      bridge_key: bridge_key
+      patient_id: person_id
+      event_datetime: drug_exposure_start_datetime
+      concept_key: drug_concept_id
+      concept_name: drug_name
+      value: quantity
+      unit: dose_unit_source_value
+      semantics: record_semantics
+    procedures:
+      event_id: procedure_occurrence_id
+      source_visit_id: visit_occurrence_id
+      bridge_key: bridge_key
+      patient_id: person_id
+      event_datetime: procedure_datetime
+      concept_key: procedure_concept_id
+      concept_name: procedure_name
+      value: quantity
+      unit: unit_source_value
+      semantics: record_semantics
+    bridge:
+      bridge_key: bridge_key
+      visit_id: visit_occurrence_id
+  source_semantics:
+    medications:
+      drug_exposure: mixed_explicit_per_row
+    procedures:
+      procedure_occurrence: mixed_explicit_per_row
+  observation_mode: audit_only
+  file_format: csv
+paper_run: false
+synthetic: true
+overrides:
+  evaluation:
+    bootstrap:
+      repetitions: 80

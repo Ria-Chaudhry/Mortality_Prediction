@@ -1,0 +1,15 @@
+{
+  "chorus": {
+    "attrition.csv": "210abb8a98bc26c56aab3e809ea1ec4908c27176a93dd2a6f2730ccadee6ba6a",
+    "event_linkage_audit.csv": "eac1a74e5a1e653c9fb9704a336c91fdcd8474f265eb28c7c1f4bb438034ff59",
+    "feature_manifest.csv": "9a9ddd58cd98f38ecd665e6279485c02ae8daf6d05e1c1f323e937bf028b88f7",
+    "fold_summary.csv": "ed665dab31dc99b1a86c346dec08a3e71e3dee81f4dd1a99f9036a64a8c61a70"
+  },
+  "mimiciv": {
+    "attrition.csv": "210abb8a98bc26c56aab3e809ea1ec4908c27176a93dd2a6f2730ccadee6ba6a",
+    "event_linkage_audit.csv": "eac1a74e5a1e653c9fb9704a336c91fdcd8474f265eb28c7c1f4bb438034ff59",
+    "feature_manifest.csv": "034c6b4c5e753c57af5f559f0f01b711c2cbcb504c80a732cf10f98a4f76ce4b",
+    "fold_summary.csv": "ed665dab31dc99b1a86c346dec08a3e71e3dee81f4dd1a99f9036a64a8c61a70"
+  },
+  "synthetic_run_summary.csv": "725156e4f49629e55465ca4cd266b80642eec7e57bf8be71cd57b8f547ca7bae"
+}

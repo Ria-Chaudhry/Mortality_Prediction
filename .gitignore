@@ -1,36 +1,37 @@
-# Python
+.venv/
 __pycache__/
 *.py[cod]
-*.egg-info/
 .pytest_cache/
 .ruff_cache/
-.mypy_cache/
+.cache/
 .coverage
 htmlcov/
-
-# Environments
-.venv/
-venv/
 .env
 .env.*
-
-# Restricted or local data
-data/
-restricted/
-secure/
-local/
-*.parquet
-*.feather
-*.db
-*.sqlite
-
-# Generated outputs
-outputs/*
-!outputs/README.md
-!outputs/.gitkeep
+!.env.example
+dist/
+build/
 site/
-
-# OS and editor files
+*.egg-info/
 .DS_Store
-.vscode/settings.json
-.idea/
+
+# Protected or potentially identifying material.
+data/
+raw_data/
+restricted_outputs/
+private_outputs/
+credentials/
+secrets/
+*.pem
+*.key
+*.p12
+*.sqlite
+*.db
+*.duckdb
+*.joblib
+*.pkl
+*.log
+
+# Generated public-safe runs are reproducible and are not source artifacts.
+outputs/*
+!outputs/.gitkeep

@@ -1,0 +1,8 @@
+standard_table,standard_field,source_table,source_column,semantics
+patients,patient_id,patients,subject_id,identity
+encounters,visit_id,admissions,hadm_id,acute_care_admission
+deaths,death_datetime,deaths,dod,recorded_death
+diagnoses,code,diagnoses_icd,icd_code,coded_diagnosis
+measurements,value,labevents,valuenum,laboratory_result
+medications,concept_key,prescriptions,formulary_drug_cd,prescription
+procedures,concept_key,procedures_icd,icd_code,coded_procedure

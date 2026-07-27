@@ -1,0 +1,21 @@
+fold_metrics:
+  keys: [matrix, model, fold]
+  required: [visits, events, auroc, auprc, brier, log_loss, tn, fp, fn, tp,
+    accuracy, balanced_accuracy, ppv, npv, sensitivity, specificity, f1]
+pooled_oof_metrics:
+  keys: [matrix, model]
+  required: [visits, events, auroc, auprc, brier, log_loss, tn, fp, fn, tp]
+confidence_intervals:
+  keys: [matrix, model, metric]
+  required: [estimate, ci_lower, ci_upper, valid_replicates, invalid_replicates,
+    bootstrap_unit, ci_method]
+roc_coordinates:
+  keys: [matrix, model, threshold]
+  required: [false_positive_rate, true_positive_rate, specificity, sensitivity]
+calibration_coordinates:
+  keys: [matrix, model, bin]
+  required: [count, events, mean_predicted_risk, observed_event_rate,
+    event_rate_ci_lower, event_rate_ci_upper]
+decision_curve_coordinates:
+  keys: [matrix, model, threshold, strategy]
+  required: [net_benefit, ci_lower, ci_upper]

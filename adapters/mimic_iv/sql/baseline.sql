@@ -1,1 +1,0 @@
--- MIMIC-IV baseline extraction placeholder.

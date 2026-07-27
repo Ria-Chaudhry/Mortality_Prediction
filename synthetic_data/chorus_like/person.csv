@@ -1,0 +1,76 @@
+person_id,birth_datetime,sex,race,ethnicity
+P000,1970-01-01,M,White,Hispanic
+P001,1971-01-01,F,Black,Not Hispanic
+P002,1972-01-01,M,Asian,Not Hispanic
+P003,1972-12-31,F,Other,Not Hispanic
+P004,1973-12-31,M,White,Not Hispanic
+P005,1974-12-31,F,Black,Hispanic
+P006,1975-12-31,M,Asian,Not Hispanic
+P007,1976-12-30,F,Other,Not Hispanic
+P008,1977-12-30,M,White,Not Hispanic
+P009,1978-12-30,F,Black,Not Hispanic
+P010,1979-12-30,M,Asian,Hispanic
+P011,1980-12-29,F,Other,Not Hispanic
+P012,1981-12-29,M,White,Not Hispanic
+P013,1982-12-29,F,Black,Not Hispanic
+P014,1983-12-29,M,Asian,Not Hispanic
+P015,1984-12-28,F,Other,Hispanic
+P016,1985-12-28,M,White,Not Hispanic
+P017,1986-12-28,F,Black,Not Hispanic
+P018,1987-12-28,M,Asian,Not Hispanic
+P019,1988-12-27,F,Other,Not Hispanic
+P020,1970-01-01,M,White,Hispanic
+P021,1971-01-01,F,Black,Not Hispanic
+P022,1972-01-01,M,Asian,Not Hispanic
+P023,1972-12-31,F,Other,Not Hispanic
+P024,1973-12-31,M,White,Not Hispanic
+P025,1974-12-31,F,Black,Hispanic
+P026,1975-12-31,M,Asian,Not Hispanic
+P027,1976-12-30,F,Other,Not Hispanic
+P028,1977-12-30,M,White,Not Hispanic
+P029,1978-12-30,F,Black,Not Hispanic
+P030,1979-12-30,M,Asian,Hispanic
+P031,1980-12-29,F,Other,Not Hispanic
+P032,1981-12-29,M,White,Not Hispanic
+P033,1982-12-29,F,Black,Not Hispanic
+P034,1983-12-29,M,Asian,Not Hispanic
+P035,1984-12-28,F,Other,Hispanic
+P036,1985-12-28,M,White,Not Hispanic
+P037,1986-12-28,F,Black,Not Hispanic
+P038,1987-12-28,M,Asian,Not Hispanic
+P039,1988-12-27,F,Other,Not Hispanic
+P040,1970-01-01,M,White,Hispanic
+P041,1971-01-01,F,Black,Not Hispanic
+P042,1972-01-01,M,Asian,Not Hispanic
+P043,1972-12-31,F,Other,Not Hispanic
+P044,1973-12-31,M,White,Not Hispanic
+P045,1974-12-31,F,Black,Hispanic
+P046,1975-12-31,M,Asian,Not Hispanic
+P047,1976-12-30,F,Other,Not Hispanic
+P048,1977-12-30,M,White,Not Hispanic
+P049,1978-12-30,F,Black,Not Hispanic
+P050,1979-12-30,M,Asian,Hispanic
+P051,1980-12-29,F,Other,Not Hispanic
+P052,1981-12-29,M,White,Not Hispanic
+P053,1982-12-29,F,Black,Not Hispanic
+P054,1983-12-29,M,Asian,Not Hispanic
+P055,1984-12-28,F,Other,Hispanic
+P056,1985-12-28,M,White,Not Hispanic
+P057,1986-12-28,F,Black,Not Hispanic
+P058,1987-12-28,M,Asian,Not Hispanic
+P059,1988-12-27,F,Other,Not Hispanic
+P060,1970-01-01,M,White,Hispanic
+P061,1971-01-01,F,Black,Not Hispanic
+P062,1972-01-01,M,Asian,Not Hispanic
+P063,1972-12-31,F,Other,Not Hispanic
+P064,1973-12-31,M,White,Not Hispanic
+P065,1974-12-31,F,Black,Hispanic
+P066,1975-12-31,M,Asian,Not Hispanic
+P067,1976-12-30,F,Other,Not Hispanic
+P068,1977-12-30,M,White,Not Hispanic
+P069,1978-12-30,F,Black,Not Hispanic
+P070,1979-12-30,M,Asian,Hispanic
+P071,1980-12-29,F,Other,Not Hispanic
+P072,1981-12-29,M,White,Not Hispanic
+P073,1982-12-29,F,Black,Not Hispanic
+P074,1983-12-29,M,Asian,Not Hispanic

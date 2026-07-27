@@ -1,28 +1,24 @@
-.PHONY: install test lint format synthetic verify docs clean
+PYTHON ?= python3
+export MPLCONFIGDIR ?= $(CURDIR)/.cache/matplotlib
+
+.PHONY: install lint test synthetic-run verify clean
 
 install:
-	python -m pip install -e ".[dev]"
-
-test:
-	pytest
+	$(PYTHON) -m pip install --disable-pip-version-check -r requirements.lock
+	$(PYTHON) -m pip install --disable-pip-version-check --no-deps -e .
 
 lint:
-	ruff check src scripts tests
+	$(PYTHON) -m ruff check src tests scripts synthetic_data/generate_synthetic_data.py
 
-format:
-	black src scripts tests
+test:
+	$(PYTHON) -m pytest -m "not slow"
 
-synthetic:
-	python scripts/reproduce_manuscript.py --config examples/synthetic/config.yaml --output-dir outputs/synthetic_run
+synthetic-run:
+	$(PYTHON) synthetic_data/generate_synthetic_data.py
+	$(PYTHON) -m clinical_domain_mortality synthetic-run
 
 verify:
-	python scripts/validate_environment.py
-	pytest
-	python scripts/verify_pipeline.py
-
-docs:
-	mkdocs serve
+	$(PYTHON) -m clinical_domain_mortality verify --run-dir outputs/synthetic
 
 clean:
-	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
-	find . -type d -name ".pytest_cache" -prune -exec rm -rf {} +
+	$(PYTHON) -c "from pathlib import Path; import shutil; [shutil.rmtree(p, ignore_errors=True) for p in [Path('outputs/synthetic'), Path('restricted_outputs/synthetic')]]"

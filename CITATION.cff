@@ -1,11 +1,10 @@
 cff-version: 1.2.0
-title: Clinical Domain Mortality Framework
-message: If you use this framework, please cite the repository and associated manuscript.
+message: "If you use this framework, cite the repository and the associated study."
+title: "Clinical-domain mortality prediction framework"
 type: software
 authors:
-  - family-names: TBD
-    given-names: TBD
-repository-code: https://github.com/your-org/clinical-domain-mortality-framework
-license: MIT
-version: 0.1.0
-date-released: 2026-07-24
+  - family-names: Chaudhry
+    given-names: Ria
+version: 1.0.0
+date-released: 2026-07-27
+repository-code: "https://github.com/Ria-Chaudhry/Mortality_Prediction"

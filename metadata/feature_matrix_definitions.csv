@@ -1,6 +1,0 @@
-column,description
-encounter_id,Stable encounter identifier
-patient_id,Stable patient identifier used for grouped validation
-outcome,Binary mortality outcome for modeling
-<domain>__<feature>__<stat>,Aggregated event feature
-baseline__<feature>,Baseline feature

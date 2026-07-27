@@ -1,0 +1,91 @@
+dataset: mimiciv
+adapter: mimiciv
+source:
+  root: synthetic_data/mimic_like
+  mapping_confirmed: true
+  expected_version: "synthetic-layout-v1"
+  deterministic_subsample:
+    enabled: false
+    max_visits: 23000
+    seed: 42
+  tables:
+    patients: patients
+    encounters: admissions
+    deaths: deaths
+    diagnoses: diagnoses_icd
+    measurements: labevents
+    medications: prescriptions
+    procedures: procedures_icd
+    bridge: event_visit_bridge
+  columns:
+    patients:
+      patient_id: subject_id
+      birth_datetime: anchor_birth_datetime
+      sex: gender
+      race: race
+      ethnicity: ethnicity
+    encounters:
+      visit_id: hadm_id
+      patient_id: subject_id
+      start_datetime: admittime
+      end_datetime: dischtime
+      visit_type: admission_type_normalized
+      elective: elective
+      followup_end_datetime: followup_end_datetime
+    deaths:
+      patient_id: subject_id
+      death_datetime: dod
+    diagnoses:
+      diagnosis_id: diagnosis_id
+      visit_id: hadm_id
+      patient_id: subject_id
+      diagnosis_datetime: diagnosis_datetime
+      code: icd_code
+    measurements:
+      event_id: labevent_id
+      source_visit_id: hadm_id
+      bridge_key: bridge_key
+      patient_id: subject_id
+      event_datetime: charttime
+      concept_key: itemid
+      concept_name: label
+      value: valuenum
+      unit: valueuom
+      semantics: record_semantics
+    medications:
+      event_id: medication_event_id
+      source_visit_id: hadm_id
+      bridge_key: bridge_key
+      patient_id: subject_id
+      event_datetime: starttime
+      concept_key: formulary_drug_cd
+      concept_name: drug
+      value: quantity
+      unit: dose_unit_rx
+      semantics: record_semantics
+    procedures:
+      event_id: procedure_event_id
+      source_visit_id: hadm_id
+      bridge_key: bridge_key
+      patient_id: subject_id
+      event_datetime: chartdate
+      concept_key: icd_code
+      concept_name: long_title
+      value: quantity
+      unit: unit
+      semantics: record_semantics
+    bridge:
+      bridge_key: bridge_key
+      visit_id: hadm_id
+  source_semantics:
+    medications:
+      prescriptions: prescription
+    procedures:
+      procedures_icd: coded
+  file_format: auto
+paper_run: false
+synthetic: true
+overrides:
+  evaluation:
+    bootstrap:
+      repetitions: 80

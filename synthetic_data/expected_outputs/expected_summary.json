@@ -1,0 +1,24 @@
+{
+  "datasets": {
+    "chorus": {
+      "events": 15,
+      "folds": 5,
+      "matrices": 8,
+      "model_fits": 160,
+      "models": 4,
+      "oof_probabilities_per_visit": 32,
+      "patients": 70,
+      "visits": 70
+    },
+    "mimiciv": {
+      "events": 15,
+      "folds": 5,
+      "matrices": 8,
+      "model_fits": 160,
+      "models": 4,
+      "oof_probabilities_per_visit": 32,
+      "patients": 70,
+      "visits": 70
+    }
+  }
+}
