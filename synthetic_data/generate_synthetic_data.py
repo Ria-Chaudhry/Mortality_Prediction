@@ -112,6 +112,7 @@ def clinical_tables() -> dict[str, pd.DataFrame]:
                     "patient_id": patient,
                     "diagnosis_datetime": prior_start + pd.Timedelta(hours=30),
                     "code": "I50" if index % 2 else "N18",
+                    "icd_version": 10,
                 }
             )
         if index % 5 == 0:
@@ -144,6 +145,7 @@ def clinical_tables() -> dict[str, pd.DataFrame]:
                 "patient_id": patient,
                 "diagnosis_datetime": start + pd.Timedelta(days=2),
                 "code": "C77",
+                "icd_version": 10,
             }
         )
         bridge_key = f"B{index:03d}"
@@ -428,83 +430,159 @@ def write_chorus(tables: dict[str, pd.DataFrame]) -> None:
 
 def write_mimic(tables: dict[str, pd.DataFrame]) -> None:
     MIMIC.mkdir(parents=True, exist_ok=True)
-    tables["patients"].rename(
-        columns={
-            "patient_id": "subject_id",
-            "birth_datetime": "anchor_birth_datetime",
-            "sex": "gender",
-        }
-    ).to_parquet(MIMIC / "patients.parquet", index=False)
-    tables["encounters"].rename(
+    deaths = tables["deaths"].set_index("patient_id")["death_datetime"]
+    patients = tables["patients"].copy()
+    patients["subject_id"] = patients["patient_id"]
+    patients["gender"] = patients["sex"]
+    patients["anchor_year"] = 2020
+    patients["anchor_age"] = (
+        patients["anchor_year"] - patients["birth_datetime"].dt.year
+    )
+    patients["anchor_year_group"] = "2017 - 2019"
+    patients["dod"] = patients["patient_id"].map(deaths)
+    patients[
+        [
+            "subject_id",
+            "gender",
+            "anchor_age",
+            "anchor_year",
+            "anchor_year_group",
+            "dod",
+        ]
+    ].to_parquet(MIMIC / "patients.parquet", index=False)
+
+    admissions = tables["encounters"].copy()
+    admissions["admission_type"] = np.select(
+        [
+            admissions["elective"].astype(bool),
+            admissions["visit_type"].eq("observation"),
+            admissions["visit_type"].eq("outpatient"),
+        ],
+        ["ELECTIVE", "OBSERVATION ADMIT", "OUTPATIENT"],
+        default="EMERGENCY",
+    )
+    admissions["deathtime"] = admissions["patient_id"].map(deaths)
+    admissions["deathtime"] = admissions["deathtime"].where(
+        admissions["deathtime"].le(admissions["end_datetime"])
+    )
+    admissions["race"] = admissions["patient_id"].map(
+        tables["patients"].set_index("patient_id")["race"]
+    )
+    admissions.rename(
         columns={
             "visit_id": "hadm_id",
             "patient_id": "subject_id",
             "start_datetime": "admittime",
             "end_datetime": "dischtime",
-            "visit_type": "admission_type_normalized",
         }
-    ).to_csv(
+    )[
+        [
+            "subject_id",
+            "hadm_id",
+            "admittime",
+            "dischtime",
+            "deathtime",
+            "admission_type",
+            "race",
+        ]
+    ].to_csv(
         MIMIC / "admissions.csv.gz",
         index=False,
         compression={"method": "gzip", "mtime": 0},
     )
-    tables["deaths"].rename(
-        columns={"patient_id": "subject_id", "death_datetime": "dod"}
-    ).to_csv(MIMIC / "deaths.csv", index=False)
-    tables["diagnoses"].rename(
+    diagnoses = tables["diagnoses"].copy()
+    diagnoses["seq_num"] = diagnoses.groupby("visit_id").cumcount() + 1
+    diagnoses.rename(
         columns={
             "visit_id": "hadm_id",
             "patient_id": "subject_id",
-            "diagnosis_datetime": "diagnosis_datetime",
             "code": "icd_code",
         }
-    ).to_csv(MIMIC / "diagnoses_icd.csv", index=False)
-    tables["measurements"].rename(
+    )[["subject_id", "hadm_id", "seq_num", "icd_code", "icd_version"]].to_csv(
+        MIMIC / "diagnoses_icd.csv", index=False
+    )
+    measurements = tables["measurements"].copy()
+    measurements["itemid"] = (
+        measurements["concept_key"]
+        .str.extract(r"(\d+)", expand=False)
+        .fillna("999")
+        .astype(int)
+        + 50000
+    )
+    measurements.rename(
         columns={
             "event_id": "labevent_id",
             "source_visit_id": "hadm_id",
             "patient_id": "subject_id",
             "event_datetime": "charttime",
-            "concept_key": "itemid",
-            "concept_name": "label",
             "value": "valuenum",
             "unit": "valueuom",
-            "semantics": "record_semantics",
         }
-    ).to_csv(
+    )[
+        [
+            "labevent_id",
+            "subject_id",
+            "hadm_id",
+            "itemid",
+            "charttime",
+            "valuenum",
+            "valueuom",
+        ]
+    ].to_csv(
         MIMIC / "labevents.csv.gz",
         index=False,
         compression={"method": "gzip", "mtime": 0},
     )
-    tables["medications"].rename(
+    medications = tables["medications"].copy()
+    medications["pharmacy_id"] = medications["event_id"]
+    medications["poe_id"] = "POE-" + medications["event_id"].astype(str)
+    medications["poe_seq"] = 1
+    medications["stoptime"] = medications["event_datetime"] + pd.Timedelta(hours=1)
+    medications["gsn"] = (
+        medications["concept_key"].str.extract(r"(\d+)", expand=False).fillna("999")
+    )
+    medications["ndc"] = "NDC-" + medications["concept_key"].astype(str)
+    medications.rename(
         columns={
-            "event_id": "medication_event_id",
             "source_visit_id": "hadm_id",
             "patient_id": "subject_id",
             "event_datetime": "starttime",
             "concept_key": "formulary_drug_cd",
             "concept_name": "drug",
-            "unit": "dose_unit_rx",
-            "semantics": "record_semantics",
         }
-    ).to_csv(MIMIC / "prescriptions.csv", index=False)
-    tables["procedures"].rename(
+    )[
+        [
+            "subject_id",
+            "hadm_id",
+            "pharmacy_id",
+            "poe_id",
+            "poe_seq",
+            "starttime",
+            "stoptime",
+            "drug",
+            "formulary_drug_cd",
+            "gsn",
+            "ndc",
+        ]
+    ].to_csv(MIMIC / "prescriptions.csv", index=False)
+    procedures = tables["procedures"].copy()
+    procedures["seq_num"] = procedures.groupby(
+        ["patient_id", "source_visit_id"], dropna=False
+    ).cumcount() + 1
+    procedures["icd_version"] = 10
+    procedures.rename(
         columns={
-            "event_id": "procedure_event_id",
             "source_visit_id": "hadm_id",
             "patient_id": "subject_id",
             "event_datetime": "chartdate",
             "concept_key": "icd_code",
-            "concept_name": "long_title",
-            "semantics": "record_semantics",
         }
-    ).to_csv(
+    )[
+        ["subject_id", "hadm_id", "seq_num", "chartdate", "icd_code", "icd_version"]
+    ].to_csv(
         MIMIC / "procedures_icd.csv.gz",
         index=False,
         compression={"method": "gzip", "mtime": 0},
-    )
-    tables["bridge"].rename(columns={"visit_id": "hadm_id"}).to_csv(
-        MIMIC / "event_visit_bridge.csv", index=False
     )
     ambiguous_fixture(MIMIC / "ambiguous_events_expected_failure.csv", chorus=False)
 

@@ -177,10 +177,12 @@ def _feature_importance(pipeline: Pipeline, model_name: str) -> pd.DataFrame:
 def validate_oof_predictions(
     predictions: pd.DataFrame,
     cohort: pd.DataFrame,
+    assignments: pd.DataFrame,
     matrix_names: list[str],
     model_names: list[str],
+    fit_manifests: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Hard fail unless every visit has exactly one valid OOF value per combination."""
+    """Validate coverage and each row's frozen patient validation-fold identity."""
     required = {"cohort_visit_number", "matrix", "model", "fold", "probability"}
     missing = required - set(predictions)
     if missing:
@@ -207,3 +209,56 @@ def validate_oof_predictions(
     probability = predictions["probability"].to_numpy(dtype=float)
     if not np.isfinite(probability).all() or ((probability < 0) | (probability > 1)).any():
         raise IntegrityError("OOF probabilities are missing or outside [0, 1]")
+    recorded = predictions.merge(
+        assignments[["cohort_visit_number", "fold"]].rename(
+            columns={"fold": "assigned_fold"}
+        ),
+        on="cohort_visit_number",
+        how="left",
+        validate="many_to_one",
+    )
+    if recorded["assigned_fold"].isna().any():
+        raise IntegrityError("OOF predictions contain unexpected encounters")
+    if not recorded["fold"].astype(int).eq(recorded["assigned_fold"].astype(int)).all():
+        raise IntegrityError(
+            "An OOF prediction's recorded fold does not equal the patient's frozen fold"
+        )
+    if fit_manifests is not None:
+        expected_fits = len(matrix_names) * len(model_names) * assignments["fold"].nunique()
+        if len(fit_manifests) != expected_fits:
+            raise IntegrityError(
+                f"Expected {expected_fits} fit manifests, observed {len(fit_manifests)}"
+            )
+        keys = [
+            (int(item["fold"]), str(item["matrix"]), str(item["model"]))
+            for item in fit_manifests
+        ]
+        if len(keys) != len(set(keys)):
+            raise IntegrityError("Duplicate outer-fold fit manifests")
+    assignment_required = {"cohort_visit_number", "patient_id", "fold"}
+    assignment_missing = assignment_required - set(assignments)
+    if assignment_missing:
+        raise IntegrityError(
+            f"Frozen fold assignments missing columns: {sorted(assignment_missing)}"
+        )
+    if assignments["cohort_visit_number"].duplicated().any():
+        raise IntegrityError("Frozen fold assignments contain duplicate visits")
+    cohort_identity = cohort[
+        ["cohort_visit_number", "patient_id"]
+    ].astype({"patient_id": "string"})
+    assignment_identity = assignments[
+        ["cohort_visit_number", "patient_id"]
+    ].astype({"patient_id": "string"})
+    identity = cohort_identity.merge(
+        assignment_identity,
+        on="cohort_visit_number",
+        how="outer",
+        suffixes=("_cohort", "_assignment"),
+        indicator=True,
+    )
+    if (identity["_merge"] != "both").any() or (
+        identity["patient_id_cohort"] != identity["patient_id_assignment"]
+    ).any():
+        raise IntegrityError("Frozen fold assignments do not match cohort visit-patient identity")
+    if (assignments.groupby("patient_id")["fold"].nunique() != 1).any():
+        raise IntegrityError("A patient is assigned to multiple frozen validation folds")

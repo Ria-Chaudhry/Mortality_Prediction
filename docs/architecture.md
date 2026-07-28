@@ -1,30 +1,33 @@
 # Architecture
 
-The dependency direction is one-way:
-
 ```text
-source files or read-only SQL
+projected source tables / read-only SQL
         |
-CHoRUSAdapter / MIMICIVAdapter
+adapter core scan -> candidate acute encounters
         |
-standardized tables + mapping/input hashes
+cohort/patient/time-restricted diagnoses and domain scans
         |
-frozen cohort -> patient folds -> linked first-24-hour events
+standardized tables + canonical value signatures
         |
-per-fold concept selection -> per-fold domain features -> eight matrices
+frozen cohort -> frozen patient folds -> linked predictor-window events
         |
-training-only preprocessing -> four models -> held-out probabilities
+outer-training top 50 concepts -> candidate columns
         |
-pooled OOF evaluation -> aggregate tables/coordinates -> manifests
+outer-training top 21 derived columns -> eight matrices
+        |
+training-only preprocessing/model -> held-out probabilities
+        |
+OOF fold-identity validation -> aggregate analyses -> classified artifacts
 ```
 
-`adapters/` is the only package that knows physical source table names. `cohort/`, `features/`,
-`modeling/`, `evaluation/`, and `audit/` accept only standardized frames or outputs produced from
-them. A run is one dataset; no function accepts a second dataset or a previously trained model.
+Only `adapters/` knows physical tables. CHoRUS uses configured projections and SQL predicates.
+MIMIC uses Parquet pushdown or projected chunked CSV reads. Common cohort, feature, model,
+evaluation, and audit code consumes standardized frames.
 
-The public CLI invokes `pipeline.run_pipeline`. Numbered scripts are thin stage wrappers around
-the same function. Re-running a stage rebuilds its prerequisites, preventing stale discovery from
-silently becoming analysis.
+One run accepts one dataset. The same fold/domain feature object is reused by every matrix
+containing that domain. There is no transfer of outcomes, concepts, folds, preprocessing, or
+models between CHoRUS and MIMIC.
 
-Public and restricted output roots are separate at creation time. Identifiers, dates, event rows,
-fold rows, OOF predictions, and protected feature names never need to enter public results.
+Real output roots are restricted by default. Their aggregate tables live in a restricted
+`release_candidate_aggregate` directory until the publication gate approves an allowlisted
+schema and small-cell policy. Synthetic aggregate output is public.

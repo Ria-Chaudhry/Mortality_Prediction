@@ -24,6 +24,7 @@ STANDARD_COLUMNS = {
         "patient_id",
         "diagnosis_datetime",
         "code",
+        "icd_version",
         "source_table",
     ],
     "bridge": ["bridge_key", "visit_id"],

@@ -1,23 +1,25 @@
 # Cohort and outcome definition
 
-The unit is one configured parent acute-care encounter. Eligible visits are adult, acute,
-non-elective hospital/observation encounters. Configuration defines the accepted visit values and
-age range. Row order is deterministic by start time, patient key, and visit key; the resulting
-`cohort_visit_number` is frozen.
+The unit is one configured parent acute-care encounter. Adult, acute, non-elective eligibility is
+applied before feature selection. Row order is stable by start time, patient key, and visit key.
 
-The prediction landmark is `visit_start + 24 hours`. The predictor interval is
-`[visit_start, min(visit_end when known, landmark))`. Its right boundary is exclusive. Short
-visits remain when configured, with the predictor interval ending at visit end. Death on or before
-the landmark excludes the visit.
+The prediction landmark is `start + landmark_hours` (24 hours in this design). The predictor
+interval is independently controlled by `predictor_window_hours`:
 
-The outcome is one only when death is after the landmark and on or before 30 days from admission.
-A non-event requires verified survival through the horizon using a later death or a follow-up end
-on/after the horizon.
+```text
+[start, min(end when known, start + predictor_window_hours))
+```
 
-Baseline predictors are age, sex, race, ethnicity, acute visit type, prior visit count, prior
-acute visit count, a prior-visit indicator, and a non-age-adjusted Charlson score. Charlson
-conditions are taken only from qualifying prior acute encounters beginning in the 365-day
-lookback; current-admission billing diagnoses are never joined.
+The right edge is exclusive. A short retained visit stops collection at its end. Configuration
+rejects a predictor window after the landmark unless an explicit documented override permits it.
 
-Identifiers, timestamps, deaths/outcomes, discharge information, length of stay, predictions,
-post-landmark values, and future-derived fields are hard-failed if presented as predictors.
+Death on or before the landmark excludes the visit. Outcome is one for death after the landmark
+and on or before 30 days from start. A zero requires the configured verified-follow-up rule.
+Native MIMIC follow-up policy must be explicit; paper mode will not infer it.
+
+Charlson and utilization use qualifying prior encounters beginning on or after
+`index_start - 365 days` and strictly before index start. Index-admission diagnoses are excluded.
+See `docs/charlson.md`.
+
+Identifiers, timestamps, outcome/death fields, discharge information, length of stay,
+predictions, and post-landmark values are prohibited model columns.

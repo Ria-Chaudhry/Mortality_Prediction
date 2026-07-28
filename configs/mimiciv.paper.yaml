@@ -1,0 +1,73 @@
+dataset: mimiciv
+adapter: mimiciv
+paper_run: true
+synthetic: false
+source:
+  layout: native
+  root_env: MIMICIV_ROOT
+  release_or_snapshot: UNCONFIRMED
+  source_format: native MIMIC-IV CSV/CSV.GZ/Parquet
+  file_format: auto
+  csv_chunksize: 250000
+  mapping_confirmed: false
+  tables:
+    patients: patients
+    encounters: admissions
+    diagnoses: diagnoses_icd
+    labevents: labevents
+    medications: prescriptions
+    procedures: procedures_icd
+  native:
+    measurement_sources: [labevents]
+    medication_concept_field: UNCONFIRMED
+    medication_semantics: prescription
+    procedure_semantics: coded
+    race_harmonization: {mode: identity}
+    ethnicity_harmonization: {mode: UNCONFIRMED}
+    admission_type_harmonization: UNCONFIRMED
+    elective_admission_types: [ELECTIVE]
+    followup_policy: UNCONFIRMED
+  deterministic_subsample:
+    enabled: true
+    method: seeded_sha256_visit_rank
+    max_visits: 23000
+    seed: 42
+paper:
+  analysis_role: independent_replication
+  exact_release_required: true
+  methodological_override_top21_confirmed: false
+  mapping_rules_confirmed: false
+  measurement_unit_rules_approved: false
+  charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1
+  charlson_mapping_version: quan-2005-charlson-icd9cm-icd10cm-v1
+  expected_counts: {visits: 23000, patients: 10009, deaths: 819}
+  expected_event_counts: UNCONFIRMED
+  expected_resolved_config_hash: UNCONFIRMED
+  mapping_file_hashes:
+    mimic_mapping.csv: 7a25e22c56f073ad2086095d2ce70ad04298f92697793a17784ddec3d361df0d
+    charlson_mapping.csv: 8fd72969d9804ab85334d875045e5df8ea25743d0e7140ad15499f7e752ea4fc
+  release_clearance:
+    classification: internal_restricted
+    approved: false
+    small_cell_threshold: UNCONFIRMED
+  manuscript_reconciled: false
+frozen_design:
+  predictor_window_hours: 24
+  landmark_hours: 24
+  outcome_horizon_days: 30
+  adult_min_age_years: 18
+  prior_charlson_lookback_days: 365
+  deduplication: preserve_native_multiplicity_with_stable_internal_keys
+  subsampling: {enabled: true, method: seeded_sha256_visit_rank, seed: 42, target: 23000}
+  patient_folds: {method: seeded_group_k_fold, count: 5, seed: 42}
+  top_concepts_per_domain: 50
+  retained_derived_features_per_domain: 21
+  derived_feature_ranking: training_visit_occurrence_or_availability
+  matrices: 8
+  models: [logistic_regression, random_forest, gradient_boosting, lightgbm]
+overrides:
+  cohort:
+    expected_counts: {visits: 23000, patients: 10009, deaths: 819}
+  outputs:
+    public_root: outputs/paper
+    restricted_root: restricted_outputs/paper

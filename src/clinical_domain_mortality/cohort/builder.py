@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 
 from ..adapters import StandardizedData
-from ..config import PROJECT_ROOT
-from ..errors import IntegrityError
+from ..errors import CountMismatchError, IntegrityError
 from ..hashing import hash_frame
+from .charlson import score_diagnosis_frame
 
 
 @dataclass
@@ -34,13 +34,31 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
 
     frame = encounters.merge(patients, on="patient_id", how="left", validate="many_to_one")
     _record(attrition, "source encounters", frame)
-    if frame["birth_datetime"].isna().any():
-        raise IntegrityError("An encounter has no matching patient birth date")
-
-    frame["age"] = (
-        (frame["start_datetime"] - frame["birth_datetime"]).dt.total_seconds()
-        / (365.2425 * 24 * 3600)
-    )
+    if (
+        {"age_anchor", "age_anchor_year"}.issubset(frame.columns)
+        and frame["age_anchor"].notna().any()
+    ):
+        if frame[["age_anchor", "age_anchor_year"]].isna().any().any():
+            raise IntegrityError("A MIMIC-IV encounter has missing anchor age fields")
+        frame["age"] = frame["age_anchor"] + (
+            frame["start_datetime"].dt.year - frame["age_anchor_year"]
+        )
+    else:
+        if frame["birth_datetime"].isna().any():
+            raise IntegrityError("An encounter has no matching patient birth date")
+        frame["age"] = (
+            (frame["start_datetime"] - frame["birth_datetime"]).dt.total_seconds()
+            / (365.2425 * 24 * 3600)
+        )
+    if "race_at_admission" in frame:
+        frame["race"] = frame["race_at_admission"].astype(object).where(
+            frame["race_at_admission"].notna(), frame["race"].astype(object)
+        )
+    if "ethnicity_at_admission" in frame:
+        frame["ethnicity"] = frame["ethnicity_at_admission"].astype(object).where(
+            frame["ethnicity_at_admission"].notna(),
+            frame["ethnicity"].astype(object),
+        )
     eligible = frame["age"].between(rules["min_age_years"], rules["max_age_years"], inclusive="both")
     frame = frame.loc[eligible].copy()
     _record(attrition, "adult age range", frame)
@@ -63,9 +81,14 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
     frame["outcome_horizon_datetime"] = frame["start_datetime"] + pd.to_timedelta(
         rules["outcome_horizon_days"], unit="D"
     )
-    frame["predictor_end_datetime"] = frame[["end_datetime", "landmark_datetime"]].min(axis=1)
+    frame["configured_predictor_end_datetime"] = frame[
+        "start_datetime"
+    ] + pd.to_timedelta(rules["predictor_window_hours"], unit="h")
+    frame["predictor_end_datetime"] = frame[
+        ["end_datetime", "configured_predictor_end_datetime"]
+    ].min(axis=1)
     frame["predictor_end_datetime"] = frame["predictor_end_datetime"].fillna(
-        frame["landmark_datetime"]
+        frame["configured_predictor_end_datetime"]
     )
     frame["short_visit"] = frame["end_datetime"].notna() & (
         frame["end_datetime"] < frame["landmark_datetime"]
@@ -117,14 +140,29 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
     frame["prior_visit_indicator"] = (frame["prior_visit_count"] > 0).astype("int8")
 
     expected = rules.get("expected_counts")
-    if config.get("paper_run") and expected:
+    if (config.get("paper_run") or rules.get("enforce_expected_counts")) and expected:
         observed = {
             "visits": len(frame),
             "patients": int(frame["patient_id"].nunique()),
             "deaths": int(frame["outcome"].sum()),
         }
         if observed != expected:
-            raise IntegrityError(f"Paper cohort count mismatch: expected={expected}, observed={observed}")
+            comparison = pd.DataFrame(
+                [
+                    {
+                        "measure": name,
+                        "expected": int(expected[name]),
+                        "observed": int(observed[name]),
+                        "matches": bool(expected[name] == observed[name]),
+                    }
+                    for name in ("visits", "patients", "deaths")
+                ]
+            )
+            raise CountMismatchError(
+                f"Paper cohort count mismatch: expected={expected}, observed={observed}",
+                attrition=pd.DataFrame(attrition),
+                comparison=comparison,
+            )
 
     baseline_columns = [
         "cohort_visit_number",
@@ -140,6 +178,10 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
     ]
     baseline = frame[baseline_columns].copy()
     baseline["age"] = baseline["age"].round(8)
+    for column in ("sex", "race", "ethnicity", "visit_type"):
+        baseline[column] = (
+            baseline[column].astype(object).where(baseline[column].notna(), np.nan)
+        )
     row_hash = hash_frame(frame, ["cohort_visit_number", "visit_id", "patient_id"])
     cohort_hash = hash_frame(
         frame,
@@ -222,25 +264,17 @@ def _prior_features(
         .rename("prior_acute_visit_count")
     )
 
-    mapping = pd.read_csv(PROJECT_ROOT / "mappings" / "charlson_mapping.csv")
-    mapping = mapping.sort_values(
-        "code_prefix", key=lambda values: values.str.len(), ascending=False, kind="stable"
-    )
     prior_diagnoses = acute_pairs[["cohort_visit_number", "visit_id"]].merge(
-        diagnoses[["visit_id", "code"]], on="visit_id", how="inner"
+        diagnoses[["visit_id", "code", "icd_version"]], on="visit_id", how="inner"
     )
-    prior_diagnoses["category"] = prior_diagnoses["code"].map(
-        lambda code: _charlson_category(str(code), mapping)
-    )
-    prior_diagnoses = prior_diagnoses.dropna(subset=["category"]).drop_duplicates(
-        ["cohort_visit_number", "category"]
-    )
-    weight_by_category = mapping.drop_duplicates("category").set_index("category")["weight"]
-    prior_diagnoses["weight"] = prior_diagnoses["category"].map(weight_by_category)
+    if not prior_diagnoses.empty and prior_diagnoses["icd_version"].isna().any():
+        raise IntegrityError("Prior diagnoses contain missing ICD versions")
     scores = (
-        prior_diagnoses.groupby("cohort_visit_number", sort=False)["weight"]
-        .sum()
+        prior_diagnoses.groupby("cohort_visit_number", sort=False, group_keys=False)
+        .apply(lambda group: score_diagnosis_frame(group).score, include_groups=False)
         .rename("prior_charlson_score")
+        if not prior_diagnoses.empty
+        else pd.Series(dtype="int64", name="prior_charlson_score")
     )
     result = index[["cohort_visit_number"]].copy()
     return (
@@ -248,11 +282,3 @@ def _prior_features(
         .join(acute_counts, on="cohort_visit_number")
         .join(scores, on="cohort_visit_number")
     )
-
-
-def _charlson_category(code: str, mapping: pd.DataFrame) -> str | None:
-    normalized = code.upper().replace(".", "").strip()
-    for row in mapping.itertuples(index=False):
-        if normalized.startswith(str(row.code_prefix).upper().replace(".", "")):
-            return str(row.category)
-    return None

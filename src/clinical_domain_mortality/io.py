@@ -28,20 +28,86 @@ def find_table(root: Path, name: str, format_hint: str = "auto") -> Path:
     return found[0]
 
 
-def read_table(path: str | Path) -> pd.DataFrame:
+def read_table(
+    path: str | Path,
+    *,
+    columns: list[str],
+    allowed_values: dict[str, set[Any]] | None = None,
+    allowed_any: dict[str, set[Any]] | None = None,
+    time_bounds: tuple[str, pd.Timestamp, pd.Timestamp] | None = None,
+    chunksize: int = 250_000,
+) -> pd.DataFrame:
+    """Read selected columns with predicate pushdown or bounded CSV chunks."""
     resolved = Path(path)
     suffixes = resolved.suffixes
     if resolved.suffix == ".parquet":
-        return pd.read_parquet(resolved)
+        import pyarrow.dataset as ds
+
+        dataset = ds.dataset(resolved, format="parquet")
+        missing = set(columns) - set(dataset.schema.names)
+        if missing:
+            raise ConfigurationError(
+                f"{resolved.name} missing required columns: {sorted(missing)}"
+            )
+        expression = None
+        for name, values in sorted((allowed_values or {}).items()):
+            condition = ds.field(name).isin(sorted(values, key=str))
+            expression = condition if expression is None else expression & condition
+        any_expression = None
+        for name, values in sorted((allowed_any or {}).items()):
+            condition = ds.field(name).isin(sorted(values, key=str))
+            any_expression = (
+                condition if any_expression is None else any_expression | condition
+            )
+        if any_expression is not None:
+            expression = (
+                any_expression if expression is None else expression & any_expression
+            )
+        if time_bounds:
+            name, lower, upper = time_bounds
+            condition = (ds.field(name) >= lower.to_pydatetime()) & (
+                ds.field(name) < upper.to_pydatetime()
+            )
+            expression = condition if expression is None else expression & condition
+        return dataset.to_table(columns=columns, filter=expression).to_pandas()
     if resolved.suffix == ".csv" or suffixes[-2:] == [".csv", ".gz"]:
-        return pd.read_csv(resolved, low_memory=False)
+        parts: list[pd.DataFrame] = []
+        try:
+            iterator = pd.read_csv(
+                resolved,
+                usecols=columns,
+                chunksize=chunksize,
+                low_memory=False,
+            )
+            for chunk in iterator:
+                keep = pd.Series(True, index=chunk.index)
+                for name, values in (allowed_values or {}).items():
+                    keep &= chunk[name].isin(values)
+                if allowed_any:
+                    any_keep = pd.Series(False, index=chunk.index)
+                    for name, values in allowed_any.items():
+                        any_keep |= chunk[name].isin(values)
+                    keep &= any_keep
+                if time_bounds:
+                    name, lower, upper = time_bounds
+                    times = pd.to_datetime(chunk[name], errors="coerce")
+                    keep &= times.ge(lower) & times.lt(upper)
+                if keep.any():
+                    parts.append(chunk.loc[keep].copy())
+        except ValueError as error:
+            raise ConfigurationError(
+                f"{resolved.name} does not satisfy its required native columns: {error}"
+            ) from error
+        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=columns)
     raise ConfigurationError(f"Unsupported table format: {resolved}")
 
 
 def write_csv(frame: pd.DataFrame, path: str | Path) -> str:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_csv(resolved, index=False, lineterminator="\n", float_format="%.17g")
+    temporary = resolved.with_name(f".{resolved.name}.tmp")
+    frame.to_csv(temporary, index=False, lineterminator="\n", float_format="%.17g")
+    temporary.replace(resolved)
     return hash_file(resolved)
 
 
@@ -65,7 +131,9 @@ def write_json(value: Any, path: str | Path) -> str:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(_sanitize(value), indent=2, sort_keys=True, ensure_ascii=True) + "\n"
-    resolved.write_text(payload, encoding="utf-8")
+    temporary = resolved.with_name(f".{resolved.name}.tmp")
+    temporary.write_text(payload, encoding="utf-8")
+    temporary.replace(resolved)
     return hash_file(resolved)
 
 

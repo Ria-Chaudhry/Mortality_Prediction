@@ -1,9 +1,12 @@
 dataset: chorus
 adapter: chorus
+paper_run: true
+synthetic: false
 source:
-  backend: files
-  root: synthetic_data/chorus_like
-  mapping_confirmed: true
+  backend: sql
+  release_or_snapshot: UNCONFIRMED
+  source_format: OMOP-compatible SQL
+  mapping_confirmed: false
   database_url_env: CHORUS_DATABASE_URL
   schema_env: CHORUS_SCHEMA
   tables:
@@ -74,14 +77,6 @@ source:
       value: quantity
       unit: unit_source_value
       semantics: record_semantics
-    observations:
-      event_id: observation_id
-      source_visit_id: visit_occurrence_id
-      patient_id: person_id
-      event_datetime: observation_datetime
-      concept_key: observation_concept_id
-      value: value_as_string
-      semantics: record_semantics
     bridge:
       bridge_key: bridge_key
       visit_id: visit_occurrence_id
@@ -91,10 +86,42 @@ source:
     procedures:
       procedure_occurrence: mixed_explicit_per_row
   observation_mode: audit_only
-  file_format: csv
-paper_run: false
-synthetic: true
+paper:
+  analysis_role: primary_development
+  exact_release_required: true
+  methodological_override_top21_confirmed: false
+  mapping_rules_confirmed: false
+  measurement_unit_rules_approved: false
+  charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1
+  charlson_mapping_version: quan-2005-charlson-icd9cm-icd10cm-v1
+  expected_counts: {visits: 22098, patients: 5892, deaths: 1004}
+  expected_event_counts: UNCONFIRMED
+  expected_resolved_config_hash: UNCONFIRMED
+  mapping_file_hashes:
+    chorus_mapping_template.csv: 5cd772ea699f26acb72ded63513c1155f714e651223926a91842a9f87e331442
+    charlson_mapping.csv: 8fd72969d9804ab85334d875045e5df8ea25743d0e7140ad15499f7e752ea4fc
+  release_clearance:
+    classification: internal_restricted
+    approved: false
+    small_cell_threshold: UNCONFIRMED
+  manuscript_reconciled: false
+frozen_design:
+  predictor_window_hours: 24
+  landmark_hours: 24
+  outcome_horizon_days: 30
+  adult_min_age_years: 18
+  prior_charlson_lookback_days: 365
+  deduplication: stable_source_event_key_then_hard_fail_duplicates
+  subsampling: {enabled: false, method: none, seed: 42, target: null}
+  patient_folds: {method: seeded_group_k_fold, count: 5, seed: 42}
+  top_concepts_per_domain: 50
+  retained_derived_features_per_domain: 21
+  derived_feature_ranking: training_visit_occurrence_or_availability
+  matrices: 8
+  models: [logistic_regression, random_forest, gradient_boosting, lightgbm]
 overrides:
-  evaluation:
-    bootstrap:
-      repetitions: 80
+  cohort:
+    expected_counts: {visits: 22098, patients: 5892, deaths: 1004}
+  outputs:
+    public_root: outputs/paper
+    restricted_root: restricted_outputs/paper

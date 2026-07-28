@@ -1,33 +1,36 @@
 # Methods-to-code and output crosswalk
 
-| Manuscript/specification element | Configuration | Generating code/stage | Output |
+| Method or figure/table input | Configuration | Code/stage | Evidence/output |
 |---|---|---|---|
-| Adult non-elective acute-care population | `cohort.yaml: cohort` | `cohort/builder.py`, stage 2 | `attrition.csv`, cohort manifest |
-| 24-hour landmark and exclusive window | `landmark_hours`, `predictor_window_hours` | cohort builder + `features/linkage.py` | event linkage audit |
-| Early-death exclusion and 30-day outcome | `outcome_horizon_days` | cohort builder | restricted cohort, cohort manifest |
-| Verified follow-up | `require_verified_followup` | cohort builder | attrition |
-| Prior utilization | `prior_lookback_days` | `_prior_features` | restricted baseline |
-| Prior-only non-age Charlson | `charlson_mapping.csv` | `_prior_features` | restricted baseline |
-| Five patient folds | `folds.count`, `folds.seed` | `cohort/folds.py`, stage 3 | fold summary/hash; restricted assignments |
-| Direct/bridge/patient-time linkage | dataset mapping | `features/linkage.py`, stages 4-5 | linkage/mapping audits |
-| Training-fold concept prevalence | `concept_count`, `ranking`, `tie_break` | `features/selection.py`, stage 6 | per-fold selections/hashes |
-| Measurement 50 x 6 | `features.measurements` | `features/construction.py` | 300-count feature manifest |
-| Medication 50 x 2 + 4 | `features.medications` | construction | 104-count feature manifest |
-| Procedure 50 x 2 + 3 | `features.procedures` | construction | 103-count feature manifest |
-| Eight matrices | `models.yaml: matrices` | `features/matrices.py` | matrix manifest |
-| Four frozen models | `models.yaml: models` | `modeling/runner.py`, stage 7 | model manifest |
-| Training-only preprocessing | model configuration | `build_pipeline` per outer fold | fit manifests/tests |
-| One held-out probability/combo | folds/matrices/models | pipeline stage 7 | restricted OOF rows |
-| Fold and pooled performance | threshold 0.5 | `evaluation/analysis.py` | fold, summary, pooled CSVs |
-| Patient bootstrap CIs | repetitions/seed/level | `evaluation/bootstrap.py` | confidence interval CSV |
-| Model selection | selection hierarchy/order | `_select_models` | best model CSV |
-| Full ROC and 90% specificity | target 0.90 | `evaluation/metrics.py` | ROC and operating-point CSVs |
-| Highest-risk 10% | `top_risk_fraction` | `top_risk_analysis` | top-risk CSV |
-| Calibration and ECE | `calibration_bins` | calibration functions | summary/coordinate CSVs |
-| Decision curves | 0.01-0.50 thresholds | `_decision_curve` | decision coordinate CSV |
-| Paired domain increments | comparison list | `_paired_comparisons` | paired-comparison CSV |
-| Performance table | selected-model outputs | stage 8 | performance table |
-| Clinical-utility table | operating/top-risk joins | stage 8 | clinical-utility table |
-| Calibration table | calibration summary | stage 8 | calibration table |
-| Figure inputs | evaluation thresholds/bins | stage 8 only | ROC/calibration/decision CSVs; no plots |
-| Reproducibility provenance | all configs | audit/pipeline | dataset/fold/domain/matrix/model/run manifests |
+| Adult non-elective acute-care eligibility | `cohort.yaml` | `cohort/builder.py`, stage 2 | attrition, cohort manifest |
+| Predictor window vs 24-hour landmark | separate hour fields | builder + `features/linkage.py` | cohort/linkage audits |
+| Early-death exclusion and 30-day outcome | horizon/follow-up policy | builder | restricted cohort, attrition |
+| Prior utilization | 365-day lookback | `_prior_features` | restricted baseline |
+| Versioned prior-only Charlson | algorithm/version/hash | `cohort/charlson.py` | baseline, config/mapping manifest |
+| Five patient folds | count/seed | `cohort/folds.py`, stage 3 | fold summary/hash/assignments |
+| Direct/bridge/patient-time linkage | adapter mapping | `features/linkage.py` | linkage audit |
+| Outer-training top 50 | count/rank/tie | `features/selection.py` | concept selections/hashes |
+| 300/104/103 candidate features | domain definitions | `features/construction.py` | constructed count |
+| Requested outer-training top 21 | occurrence rank/name tie | construction | derived selections; 21/domain/fold |
+| Equal domain counts/reuse across matrices | matrix definitions | `features/matrices.py` | matrix/feature manifests and tests |
+| Four frozen models/eight matrices | `models.yaml` | `modeling/runner.py` | 160 fit manifests |
+| Training-only learned transforms | model pipeline | `fit_predict_fold` | tests/fit manifests |
+| Frozen fold identity for every OOF row | fold assignments | OOF validator | restricted OOF and adversarial tests |
+| Fold/pooled metrics | threshold config | `evaluation/analysis.py` | metric CSVs |
+| Patient bootstrap CIs | bootstrap config | `evaluation/bootstrap.py` | interval CSV |
+| Best model per matrix | frozen hierarchy | evaluation | `best_model_by_matrix.csv` |
+| ROC and 90% specificity | specificity target | metrics | ROC/operating-point CSVs |
+| Highest-risk 10% | risk fraction/name tie | metrics | top-risk CSV |
+| Calibration | bin count | metrics/analysis | summary/coordinate CSVs |
+| Decision curves | threshold sequence | analysis | decision coordinates |
+| Paired domain increments | comparison list/shared samples | analysis | paired comparisons |
+| Performance table | selected models | stage 8 | performance table |
+| Clinical-utility table | operating point/top-risk | stage 8 | utility table |
+| Calibration table | selected calibration | stage 8 | calibration table |
+| Plot inputs | saved numerical coordinates | stage 8 | ROC/calibration/decision CSVs; no plots |
+| Paper counts | paper YAML only | builder | comparison and failed manifest on mismatch |
+| Paper reconciliation/release | paper YAML/governance | `verify_paper_run` | fail-closed verification status |
+
+The finalized PDF maps top-50 to 300/104/103 columns. The top-21 row is a later requested override,
+not an established manuscript setting. Paper configurations require explicit confirmation before
+they can execute.

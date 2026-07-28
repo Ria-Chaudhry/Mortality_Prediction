@@ -25,5 +25,14 @@ class IntegrityError(PipelineError):
     """Rows, folds, features, probabilities, or hashes are inconsistent."""
 
 
+class CountMismatchError(IntegrityError):
+    """Paper counts failed after diagnostic evidence was constructed."""
+
+    def __init__(self, message, *, attrition, comparison):
+        super().__init__(message)
+        self.attrition = attrition
+        self.comparison = comparison
+
+
 class UnitError(PipelineError):
     """Measurement units are incompatible with confirmed rules."""

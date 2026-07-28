@@ -3,6 +3,7 @@ patients,patient_id,person,person_id,true
 encounters,visit_id,visit_occurrence,visit_occurrence_id,true
 encounters,start_datetime,visit_occurrence,visit_start_datetime,true
 deaths,death_datetime,death,death_datetime,true
+diagnoses,icd_version,condition_occurrence,icd_version,true
 measurements,event_datetime,measurement,measurement_datetime,true
 medications,event_datetime,drug_exposure,drug_exposure_start_datetime,true
 procedures,event_datetime,procedure_occurrence,procedure_datetime,true

@@ -75,15 +75,16 @@ def test_incompatible_units_hard_fail(chorus_config):
 
 
 @pytest.mark.parametrize(
-    ("domain", "expected"),
+    ("domain", "constructed"),
     [("measurements", 300), ("medications", 104), ("procedures", 103)],
 )
 def test_expected_domain_feature_counts(
-    domain, expected, prepared_events, fold_result, cohort_result, chorus_config
+    domain, constructed, prepared_events, fold_result, cohort_result, chorus_config
 ):
+    training = _training_sets(fold_result, 0)
     selection = select_concepts(
         prepared_events.events[domain],
-        _training_sets(fold_result, 0),
+        training,
         domain,
         0,
         chorus_config,
@@ -92,9 +93,12 @@ def test_expected_domain_feature_counts(
         cohort_result.cohort,
         selection,
         prepared_events.events[domain],
+        training,
         chorus_config,
     )
-    assert len(feature.feature_names) == expected
+    assert feature.full_feature_count == constructed
+    assert len(feature.feature_names) == 21
+    assert len(feature.selection_audit) == 21
     assert len(feature.frame) == len(cohort_result.cohort)
     assert feature.frame["cohort_visit_number"].tolist() == cohort_result.cohort[
         "cohort_visit_number"
@@ -104,9 +108,10 @@ def test_expected_domain_feature_counts(
 def test_zero_event_visits_are_preserved(
     prepared_events, fold_result, cohort_result, chorus_config
 ):
+    training = _training_sets(fold_result, 0)
     selection = select_concepts(
         prepared_events.events["medications"],
-        _training_sets(fold_result, 0),
+        training,
         "medications",
         0,
         chorus_config,
@@ -115,14 +120,15 @@ def test_zero_event_visits_are_preserved(
         cohort_result.cohort,
         selection,
         prepared_events.events["medications"],
+        training,
         chorus_config,
     ).frame.set_index("cohort_visit_number")
     no_event_numbers = cohort_result.cohort.loc[
         cohort_result.cohort["patient_id"].isin(["P073", "P074"]),
         "cohort_visit_number",
     ]
-    assert (feature.loc[no_event_numbers, "any_drug_24h"] == 0).all()
-    assert feature.loc[no_event_numbers, "time_to_first_drug_in_hours"].isna().all()
+    values = feature.loc[no_event_numbers]
+    assert values.fillna(0).eq(0).all().all()
 
 
 def test_too_few_concepts_hard_fails(chorus_config):
@@ -144,7 +150,16 @@ def test_row_loss_in_domain_matrix_hard_fails(cohort_result, chorus_config):
             "feature": 1,
         }
     )
-    domain = DomainFeatures("measurements", 0, lost, ["feature"], "hash")
+    domain = DomainFeatures(
+        domain="measurements",
+        fold=0,
+        frame=lost,
+        feature_names=["feature"],
+        full_feature_count=1,
+        selection_audit=pd.DataFrame(),
+        feature_schema_hash="schema",
+        feature_value_hash="values",
+    )
     with pytest.raises(IntegrityError):
         assemble_matrix(
             baseline,
@@ -152,6 +167,93 @@ def test_row_loss_in_domain_matrix_hard_fails(cohort_result, chorus_config):
             "baseline_measurements",
             chorus_config,
         )
+
+
+@pytest.mark.parametrize("domain", ["measurements", "medications", "procedures"])
+def test_validation_changes_cannot_change_top50_or_top21(
+    domain, prepared_events, fold_result, cohort_result, chorus_config
+):
+    fold = 0
+    training = _training_sets(fold_result, fold)
+    validation = set(
+        fold_result.assignments.loc[
+            fold_result.assignments["fold"] == fold, "cohort_visit_number"
+        ]
+    )
+    original_events = prepared_events.events[domain]
+    original_selection = select_concepts(
+        original_events, training, domain, fold, chorus_config
+    )
+    original_features = build_fold_domain_features(
+        cohort_result.cohort,
+        original_selection,
+        original_events,
+        training,
+        chorus_config,
+    )
+    changed = original_events.copy()
+    validation_mask = changed["cohort_visit_number"].isin(validation)
+    changed.loc[validation_mask, "concept_key"] = "validation_only_replacement"
+    changed.loc[validation_mask, "concept_name"] = "validation only"
+    changed.loc[validation_mask, "value"] = 1e12
+    changed_selection = select_concepts(
+        changed, training, domain, fold, chorus_config
+    )
+    changed_features = build_fold_domain_features(
+        cohort_result.cohort,
+        changed_selection,
+        changed,
+        training,
+        chorus_config,
+    )
+    outcome_changed_cohort = cohort_result.cohort.copy()
+    outcome_changed_cohort.loc[
+        outcome_changed_cohort["cohort_visit_number"].isin(validation), "outcome"
+    ] = 1 - outcome_changed_cohort.loc[
+        outcome_changed_cohort["cohort_visit_number"].isin(validation), "outcome"
+    ]
+    outcome_changed_features = build_fold_domain_features(
+        outcome_changed_cohort,
+        original_selection,
+        original_events,
+        training,
+        chorus_config,
+    )
+    assert original_selection.selected["concept_key"].tolist() == changed_selection.selected[
+        "concept_key"
+    ].tolist()
+    assert original_features.feature_names == changed_features.feature_names
+    assert (
+        original_features.selection_audit["training_visit_occurrence"].tolist()
+        == changed_features.selection_audit["training_visit_occurrence"].tolist()
+    )
+    assert original_features.feature_names == outcome_changed_features.feature_names
+
+
+def test_domain_feature_definitions_are_reused_across_matrices(
+    prepared_events, fold_result, cohort_result, chorus_config
+):
+    training = _training_sets(fold_result, 0)
+    domains = {}
+    for domain in ("measurements", "medications", "procedures"):
+        selection = select_concepts(
+            prepared_events.events[domain], training, domain, 0, chorus_config
+        )
+        domains[domain] = build_fold_domain_features(
+            cohort_result.cohort,
+            selection,
+            prepared_events.events[domain],
+            training,
+            chorus_config,
+        )
+    for domain in domains:
+        expected = set(domains[domain].feature_names)
+        for matrix_name, components in chorus_config["matrices"].items():
+            if domain in components:
+                matrix = assemble_matrix(
+                    cohort_result.baseline, domains, matrix_name, chorus_config
+                )
+                assert expected.issubset(matrix.columns)
 
 
 def _event(visit, concept, unit="u"):

@@ -1,20 +1,21 @@
 # Reproducibility statement
 
-The repository reproduces the specified method with public synthetic data. It does not redistribute
-or reconstruct protected CHoRUS or MIMIC-IV records. Exact clinical results require the authorized
-source release, confirmed mappings, frozen configuration, code commit, and locked environment
-recorded in the run manifest.
+The repository executes and verifies a privacy-safe synthetic analysis through both adapters.
+That establishes code-path reproducibility for the synthetic inputs, not reproduction of the
+paper's protected results.
 
-Material inputs, configuration, mappings, cohort, row order, folds, selections, features, and
-public outputs are SHA-256 hashed. Fixed seeds and stable ordering govern folds, concept ties,
-top-risk ties, bootstrap samples, preprocessing, and estimators. A repeated analytical run with
-the same inputs/configuration/software must reproduce analytical outputs; wall-clock timestamps
-are provenance and are excluded from analytical equality.
+Canonical hashes cover analytical values, source snapshot identifiers, configurations, mappings,
+cohort order, folds, concept/derived selections, feature schemas/values, matrices, and outputs.
+Fixed ordering and seeds govern folds, ties, estimators, top-risk groups, and bootstrap samples.
+Timestamps, machine paths, and Git dirty state are excluded from canonical synthetic equality.
 
-The synthetic run uses fewer bootstrap repetitions for practical CI time but exercises the same
-patient-clustered percentile implementation. Paper configuration retains the prespecified 2,000
-repetitions.
+The synthetic configuration lowers bootstrap repetitions for runtime while exercising the same
+patient-clustered percentile implementation. Paper configuration specifies 2,000.
 
-Internally selected models use the same pooled OOF predictions for selection and description.
-They are not independent test estimates. Operating thresholds are descriptive. This software does
-not establish causal effects, clinical safety, transportability, or deployment readiness.
+The exact MIMIC release, confirmed CHoRUS mapping/snapshot, approved unit conversions, real
+manifests, manuscript reconciliation, and release-cleared aggregates are unavailable. Paper
+configurations fail closed on those fields. No real result is fabricated.
+
+Internally selected models are described from the same OOF predictions used for selection; they
+are not independent test estimates. This code does not establish clinical safety, causal effect,
+transportability, or deployment readiness.

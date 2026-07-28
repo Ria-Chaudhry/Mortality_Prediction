@@ -19,7 +19,7 @@ from .adapters import CHoRUSAdapter, MIMICIVAdapter, SourceAdapter
 from .audit import git_commit, git_is_dirty, scan_public_tree, utc_timestamp
 from .cohort import build_cohort, create_patient_folds
 from .config import PROJECT_ROOT, load_config, read_yaml, resolve_project_path
-from .errors import ConfigurationError, IntegrityError
+from .errors import ConfigurationError, CountMismatchError, IntegrityError
 from .evaluation import evaluate_predictions
 from .features import (
     assemble_matrix,
@@ -27,7 +27,7 @@ from .features import (
     prepare_domain_events,
     select_concepts,
 )
-from .hashing import hash_file, hash_object
+from .hashing import hash_file, hash_frame_schema, hash_frame_values, hash_object
 from .io import read_json, verify_hashes, write_csv, write_json
 from .modeling import fit_predict_fold, validate_oof_predictions
 
@@ -67,14 +67,18 @@ def run_pipeline(
         if restricted_base
         else resolve_project_path(config["outputs"]["restricted_root"])
     )
-    public_dir = public_base / dataset
     restricted_dir = private_base / dataset
-    if public_dir.exists():
-        shutil.rmtree(public_dir)
+    public_dir = (
+        public_base / dataset
+        if config.get("synthetic")
+        else restricted_dir / "release_candidate_aggregate"
+    )
     if restricted_dir.exists():
         shutil.rmtree(restricted_dir)
+    if public_dir.exists():
+        shutil.rmtree(public_dir)
     public_dir.mkdir(parents=True)
-    restricted_dir.mkdir(parents=True)
+    restricted_dir.mkdir(parents=True, exist_ok=True)
     (public_dir / "manifests").mkdir()
 
     # Stage 1: validate and normalize source.
@@ -107,7 +111,27 @@ def run_pipeline(
         return _partial_result(config, public_dir, restricted_dir, standardized)
 
     # Stage 2: freeze cohort, outcome, baseline, and row order.
-    cohort_result = build_cohort(standardized, config)
+    try:
+        cohort_result = build_cohort(standardized, config)
+    except CountMismatchError as error:
+        write_csv(error.attrition, public_dir / "attrition.csv")
+        write_csv(
+            error.comparison,
+            public_dir / "expected_vs_observed_counts.csv",
+        )
+        write_json(
+            {
+                "status": "failed",
+                "failure_type": "paper_cohort_count_mismatch",
+                "error": str(error),
+                "dataset": dataset,
+                "artifact_classification": "internal_restricted",
+                "config_hash": config["_meta"]["config_hash"],
+                "mapping_hash": standardized.mapping_hash,
+            },
+            public_dir / "failed_run_manifest.json",
+        )
+        raise
     cohort_result.cohort.to_parquet(
         restricted_dir / "base_acute_care_cohort.parquet", index=False
     )
@@ -121,6 +145,7 @@ def run_pipeline(
             "patients": int(cohort_result.cohort["patient_id"].nunique()),
             "outcomes": int(cohort_result.cohort["outcome"].sum()),
             "landmark_hours": config["cohort"]["landmark_hours"],
+            "predictor_window_hours": config["cohort"]["predictor_window_hours"],
             "outcome_horizon_days": config["cohort"]["outcome_horizon_days"],
         },
         public_dir / "cohort_manifest.json",
@@ -171,6 +196,7 @@ def run_pipeline(
     fit_manifests: list[dict[str, Any]] = []
     importance_parts: list[pd.DataFrame] = []
     feature_manifest_rows: list[dict[str, Any]] = []
+    derived_selection_parts: list[pd.DataFrame] = []
     feature_dictionary_rows: list[dict[str, Any]] = []
     matrix_manifest_rows: list[dict[str, Any]] = []
     matrix_names = list(config["matrices"])
@@ -191,6 +217,7 @@ def run_pipeline(
                 cohort_result.cohort,
                 selection,
                 prepared.events[domain],
+                training_numbers,
                 config,
             )
             domains[domain] = feature
@@ -202,6 +229,7 @@ def run_pipeline(
             selected = selection.selected.copy()
             selected["selection_hash"] = selection.selection_hash
             selection_parts.append(selected)
+            derived_selection_parts.append(feature.selection_audit.copy())
             if not selection.unit_audit.empty:
                 audit = selection.unit_audit.copy()
                 audit.insert(0, "fold", fold)
@@ -211,7 +239,12 @@ def run_pipeline(
                     "fold": fold,
                     "domain": domain,
                     "feature_count": len(feature.feature_names),
-                    "feature_hash": feature.feature_hash,
+                    "constructed_feature_count": feature.full_feature_count,
+                    "feature_schema_hash": feature.feature_schema_hash,
+                    "feature_value_hash": feature.feature_value_hash,
+                    "derived_selection_hash": feature.selection_audit[
+                        "derived_selection_hash"
+                    ].iloc[0],
                     "selection_hash": selection.selection_hash,
                 }
             )
@@ -221,6 +254,9 @@ def run_pipeline(
                     "domain": domain,
                     "feature_name": feature_name,
                     "selection_hash": selection.selection_hash,
+                    "derived_selection_hash": feature.selection_audit[
+                        "derived_selection_hash"
+                    ].iloc[0],
                 }
                 for feature_name in feature.feature_names
             )
@@ -241,7 +277,11 @@ def run_pipeline(
                     "matrix": matrix_name,
                     "rows": len(matrix),
                     "input_feature_count": int(matrix.shape[1]),
-                    "feature_names_hash": hash_object(matrix.columns.tolist()),
+                    "feature_schema_hash": hash_frame_schema(matrix),
+                    "feature_matrix_hash": hash_frame_values(
+                        matrix.reset_index(),
+                        identity_columns=["cohort_visit_number"],
+                    ),
                 }
             )
             for model_name in model_names:
@@ -270,12 +310,19 @@ def run_pipeline(
                 importance_parts.append(importance)
 
     selections = pd.concat(selection_parts, ignore_index=True)
+    derived_selections = pd.concat(derived_selection_parts, ignore_index=True)
     selection_target = (
         public_dir / "fold_concept_selections.csv"
         if config.get("synthetic")
         else restricted_dir / "fold_concept_selections.csv"
     )
     write_csv(selections, selection_target)
+    derived_selection_target = (
+        public_dir / "fold_derived_feature_selections.csv"
+        if config.get("synthetic")
+        else restricted_dir / "fold_derived_feature_selections.csv"
+    )
+    write_csv(derived_selections, derived_selection_target)
     selection_frequency = (
         selections.groupby(["domain", "concept_key", "concept_name"], dropna=False)
         .agg(folds_selected=("fold", "nunique"), mean_training_prevalence=("training_visit_prevalence", "mean"))
@@ -326,6 +373,19 @@ def run_pipeline(
             "selection_hashes": sorted(selections["selection_hash"].unique().tolist()),
             "ranking": config["features"]["ranking"],
             "tie_break": config["features"]["tie_break"],
+            "derived_feature_selection_count": len(derived_selections),
+            "derived_selection_hashes": sorted(
+                derived_selections["derived_selection_hash"].unique().tolist()
+            ),
+            "derived_feature_ranking": config["features"][
+                "derived_feature_ranking"
+            ],
+            "derived_feature_tie_break": config["features"][
+                "derived_feature_tie_break"
+            ],
+            "retained_per_domain_per_fold": config["features"][
+                "retained_derived_feature_count"
+            ],
             "training_folds_only": True,
         },
         public_dir / "manifests" / "selection_manifest.json",
@@ -334,7 +394,14 @@ def run_pipeline(
         return _partial_result(config, public_dir, restricted_dir, standardized)
 
     predictions = pd.concat(predictions_parts, ignore_index=True)
-    validate_oof_predictions(predictions, cohort_result.cohort, matrix_names, model_names)
+    validate_oof_predictions(
+        predictions,
+        cohort_result.cohort,
+        fold_result.assignments,
+        matrix_names,
+        model_names,
+        fit_manifests,
+    )
     if len(fit_manifests) != 160:
         raise IntegrityError(f"Expected 160 outer-fold fits; observed {len(fit_manifests)}")
     write_csv(predictions, restricted_dir / "oof_predictions_restricted.csv")
@@ -375,7 +442,22 @@ def run_pipeline(
             "dataset": dataset,
             "adapter": config["adapter"],
             "input_hashes": standardized.input_hashes,
-            "input_collection_hash": hash_object(standardized.input_hashes),
+            "source_release_or_snapshot": config["source"].get(
+                "release_or_snapshot", config["source"].get("expected_version")
+            ),
+            "config_hash": config["_meta"]["config_hash"],
+            "mapping_hash": standardized.mapping_hash,
+            "input_collection_hash": hash_object(
+                {
+                    "analytical_table_hashes": standardized.input_hashes,
+                    "source_release_or_snapshot": config["source"].get(
+                        "release_or_snapshot",
+                        config["source"].get("expected_version"),
+                    ),
+                    "config_hash": config["_meta"]["config_hash"],
+                    "mapping_hash": standardized.mapping_hash,
+                }
+            ),
         },
         public_dir / "manifests" / "input_manifest.json",
     )
@@ -400,6 +482,7 @@ def run_pipeline(
             "models": 4,
             "model_fits": 160,
             "oof_probabilities_per_visit": 32,
+            "retained_features_per_domain": 21,
             "bootstrap_repetitions": evaluation_result.bootstrap_repetitions,
         },
         public_dir / "manifests" / "dataset_manifest.json",
@@ -436,6 +519,16 @@ def run_pipeline(
         "software_versions": software,
         "warnings": [],
         "failures": [],
+        "artifact_classification": (
+            "public_synthetic"
+            if config.get("synthetic")
+            else "release_candidate_aggregate_restricted"
+        ),
+        "paper_reproduction_status": (
+            "not_applicable_synthetic"
+            if config.get("synthetic")
+            else "not_reconciled_or_release_cleared"
+        ),
         "restricted_artifacts": [
             "base_acute_care_cohort.parquet",
             "baseline_X.parquet",
@@ -444,11 +537,23 @@ def run_pipeline(
             "prepared_medications.parquet",
             "prepared_procedures.parquet",
             "fold_features/fold_<k>/<domain>.parquet",
+            "fold_derived_feature_selections.csv",
             "oof_predictions_restricted.csv",
         ],
     }
     write_json(run_manifest, public_dir / "run_manifest.json")
-    scan_public_tree(public_dir)
+    scan_public_tree(
+        public_dir,
+        classification=(
+            "public_synthetic"
+            if config.get("synthetic")
+            else "release_candidate_aggregate"
+        ),
+        small_cell_threshold=config.get("privacy", {}).get("small_cell_threshold"),
+        release_approved=bool(
+            config.get("paper", {}).get("release_clearance", {}).get("approved")
+        ),
+    )
     return RunResult(dataset, public_dir, restricted_dir, run_manifest)
 
 
@@ -503,13 +608,24 @@ def verify_run(run_dir: str | Path) -> dict[str, Any]:
             "files_verified": len(manifest["output_hashes"]),
         }
     if set(datasets) == {"chorus", "mimiciv"}:
-        expected = read_json(PROJECT_ROOT / "synthetic_data" / "expected_outputs" / "expected_summary.json")
-        expected_hashes = read_json(
+        expected = read_json(
+            PROJECT_ROOT / "synthetic_data" / "expected_outputs" / "expected_summary.json"
+        )
+        expected_path = (
             PROJECT_ROOT
             / "synthetic_data"
             / "expected_outputs"
             / "expected_aggregate_hashes.json"
         )
+        checksum_path = expected_path.with_suffix(".sha256")
+        if not checksum_path.is_file():
+            raise IntegrityError("Synthetic expected-hash checksum sidecar is missing")
+        expected_checksum = checksum_path.read_text(encoding="utf-8").strip()
+        if hash_file(expected_path) != expected_checksum:
+            raise IntegrityError(
+                "Synthetic expected hashes changed outside the intentional freeze procedure"
+            )
+        expected_hashes = read_json(expected_path)
         summary = pd.read_csv(root / "synthetic_run_summary.csv").sort_values(
             "dataset", kind="stable"
         )
@@ -532,12 +648,174 @@ def verify_run(run_dir: str | Path) -> dict[str, Any]:
             )
         if observed["chorus"] != observed["mimiciv"]:
             raise IntegrityError("Equivalent synthetic adapters did not converge to the same cohort")
+        if expected_hashes.get("format_version") != 2:
+            raise IntegrityError("Unsupported synthetic freeze manifest format")
         for dataset in ("chorus", "mimiciv"):
-            verify_hashes(root / dataset, expected_hashes[dataset])
+            frozen = expected_hashes["datasets"][dataset]
+            actual_names = sorted(
+                path.relative_to(root / dataset).as_posix()
+                for path in (root / dataset).rglob("*")
+                if path.is_file() and path.name != "run_manifest.json"
+            )
+            if actual_names != frozen["artifact_names"]:
+                raise IntegrityError(
+                    f"Synthetic artifact set changed for {dataset}: "
+                    f"expected={frozen['artifact_names']}, observed={actual_names}"
+                )
+            verify_hashes(root / dataset, frozen["artifact_hashes"])
+            safe_manifest = _safe_run_manifest(
+                read_json(root / dataset / "run_manifest.json")
+            )
+            if hash_object(safe_manifest) != frozen["safe_run_manifest_hash"]:
+                raise IntegrityError(
+                    f"Safe run-manifest fields changed for synthetic {dataset}"
+                )
         actual_summary_hash = hash_file(root / "synthetic_run_summary.csv")
-        if actual_summary_hash != expected_hashes["synthetic_run_summary.csv"]:
+        if actual_summary_hash != expected_hashes["synthetic_run_summary_hash"]:
             raise IntegrityError("Synthetic aggregate summary hash does not match the release")
+        parent_safe = _safe_parent_manifest(read_json(root / "run_manifest.json"))
+        if hash_object(parent_safe) != expected_hashes["safe_parent_manifest_hash"]:
+            raise IntegrityError("Safe synthetic overall manifest fields changed")
     return {"verified": verified, "status": "ok"}
+
+
+def freeze_synthetic_expected(
+    run_dir: str | Path,
+    *,
+    approve_update: bool,
+) -> dict[str, Any]:
+    """Intentional procedure for updating all deterministic synthetic pins."""
+    if not approve_update:
+        raise ConfigurationError(
+            "Synthetic freeze requires --approve-update after reviewing all aggregate changes"
+        )
+    root = Path(run_dir).resolve()
+    if not all((root / dataset).is_dir() for dataset in ("chorus", "mimiciv")):
+        raise IntegrityError("Freeze requires completed CHoRUS and MIMIC synthetic runs")
+    frozen: dict[str, Any] = {"format_version": 2, "datasets": {}}
+    for dataset in ("chorus", "mimiciv"):
+        dataset_dir = root / dataset
+        manifest = read_json(dataset_dir / "run_manifest.json")
+        verify_hashes(dataset_dir, manifest["output_hashes"])
+        artifact_names = sorted(
+            path.relative_to(dataset_dir).as_posix()
+            for path in dataset_dir.rglob("*")
+            if path.is_file() and path.name != "run_manifest.json"
+        )
+        frozen["datasets"][dataset] = {
+            "artifact_names": artifact_names,
+            "artifact_hashes": {
+                relative: hash_file(dataset_dir / relative)
+                for relative in artifact_names
+            },
+            "safe_run_manifest_hash": hash_object(_safe_run_manifest(manifest)),
+        }
+    frozen["synthetic_run_summary_hash"] = hash_file(
+        root / "synthetic_run_summary.csv"
+    )
+    frozen["safe_parent_manifest_hash"] = hash_object(
+        _safe_parent_manifest(read_json(root / "run_manifest.json"))
+    )
+    expected_path = (
+        PROJECT_ROOT
+        / "synthetic_data"
+        / "expected_outputs"
+        / "expected_aggregate_hashes.json"
+    )
+    write_json(frozen, expected_path)
+    expected_path.with_suffix(".sha256").write_text(
+        hash_file(expected_path) + "\n", encoding="utf-8"
+    )
+    return {
+        "status": "ok",
+        "datasets": ["chorus", "mimiciv"],
+        "artifacts_frozen": {
+            dataset: len(frozen["datasets"][dataset]["artifact_names"])
+            for dataset in ("chorus", "mimiciv")
+        },
+        "expected_manifest_sha256": hash_file(expected_path),
+    }
+
+
+def _safe_run_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    excluded = {"created_utc", "git_commit", "git_worktree_dirty"}
+    return {
+        key: value
+        for key, value in manifest.items()
+        if key not in excluded
+    }
+
+
+def _safe_parent_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in manifest.items() if key != "created_utc"}
+
+
+def verify_paper_run(
+    config_path: str | Path,
+    run_dir: str | Path,
+) -> dict[str, Any]:
+    """Fail closed unless an actual paper run and governance status reconcile."""
+    config = load_config(config_path)
+    if not config.get("paper_run"):
+        raise ConfigurationError("Paper verification requires paper_run: true")
+    root = Path(run_dir).resolve()
+    if not root.is_dir():
+        raise IntegrityError(f"Paper run directory does not exist: {root}")
+    manifest = read_json(root / "run_manifest.json")
+    dataset_manifest = read_json(root / "manifests" / "dataset_manifest.json")
+    cohort_manifest = read_json(root / "cohort_manifest.json")
+    selection_manifest = read_json(root / "manifests" / "selection_manifest.json")
+    mapping_manifest = read_json(root / "manifests" / "mapping_manifest.json")
+    failures: list[str] = []
+    if manifest.get("config_hash") != config["_meta"]["config_hash"]:
+        failures.append("configuration hash differs from the executed run")
+    if manifest.get("mapping_hash") != mapping_manifest.get("mapping_hash"):
+        failures.append("mapping hash is internally inconsistent")
+    expected = config["cohort"]["expected_counts"]
+    observed = {
+        "visits": cohort_manifest.get("visits"),
+        "patients": cohort_manifest.get("patients"),
+        "deaths": cohort_manifest.get("outcomes"),
+    }
+    if observed != expected:
+        failures.append(f"cohort counts differ: expected={expected}, observed={observed}")
+    if dataset_manifest.get("folds") != 5:
+        failures.append("five frozen folds were not recorded")
+    if dataset_manifest.get("matrices") != 8 or dataset_manifest.get("models") != 4:
+        failures.append("eight matrices and four models were not recorded")
+    if selection_manifest.get("retained_per_domain_per_fold") != 21:
+        failures.append("top-21 derived-feature selection is not recorded")
+    if not selection_manifest.get("training_folds_only"):
+        failures.append("training-fold-only selection is not recorded")
+    required = {
+        "fold_metrics.csv",
+        "pooled_oof_metrics.csv",
+        "best_model_by_matrix.csv",
+        "selected_models_calibration_coordinates.csv",
+        "selected_models_sensitivity_at_90_specificity.csv",
+        "selected_models_top_10_percent_risk_analysis.csv",
+        "selected_models_decision_curve_coordinates.csv",
+        "prespecified_paired_matrix_comparisons.csv",
+    }
+    missing = sorted(name for name in required if not (root / name).is_file())
+    if missing:
+        failures.append(f"required aggregate outputs are missing: {missing}")
+    paper = config["paper"]
+    if not paper.get("manuscript_reconciled"):
+        failures.append("manuscript reconciliation has not been approved")
+    if not paper.get("release_clearance", {}).get("approved"):
+        failures.append("aggregate release clearance has not been approved")
+    if failures:
+        raise IntegrityError("Paper verification failed closed: " + "; ".join(failures))
+    verify_run(root)
+    return {
+        "status": "ok",
+        "dataset": config["dataset"],
+        "run_id": manifest["run_id"],
+        "source_release_or_snapshot": config["source"]["release_or_snapshot"],
+        "manuscript_reconciled": True,
+        "release_cleared": True,
+    }
 
 
 def _verify_dataset_invariants(dataset_dir: Path, manifest: dict[str, Any]) -> None:

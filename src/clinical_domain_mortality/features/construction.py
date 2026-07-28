@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..errors import IntegrityError
-from ..hashing import hash_object
+from ..hashing import hash_frame, hash_object
 from .selection import ConceptSelection, feature_safe_key
 
 
@@ -19,16 +19,20 @@ class DomainFeatures:
     fold: int
     frame: pd.DataFrame
     feature_names: list[str]
-    feature_hash: str
+    full_feature_count: int
+    selection_audit: pd.DataFrame
+    feature_schema_hash: str
+    feature_value_hash: str
 
 
 def build_fold_domain_features(
     cohort: pd.DataFrame,
     selection: ConceptSelection,
     all_qualifying_events: pd.DataFrame,
+    training_visits: set[int],
     config: dict[str, Any],
 ) -> DomainFeatures:
-    """Construct one fold's selected columns for all frozen visits."""
+    """Construct top-50 columns, then retain training-ranked derived features."""
     selected_keys = selection.selected["concept_key"].astype(str).tolist()
     if selection.domain == "measurements":
         frame = _measurement_features(
@@ -46,21 +50,126 @@ def build_fold_domain_features(
         raise IntegrityError(f"Unknown feature domain: {selection.domain}")
     if frame["cohort_visit_number"].tolist() != cohort["cohort_visit_number"].tolist():
         raise IntegrityError(f"{selection.domain} feature construction changed cohort row order")
-    names = [column for column in frame if column != "cohort_visit_number"]
-    if len(names) != len(set(names)):
+    full_names = [column for column in frame if column != "cohort_visit_number"]
+    if len(full_names) != len(set(full_names)):
         raise IntegrityError(f"{selection.domain} contains duplicate feature names")
+    constructed = int(config["features"][selection.domain]["constructed_count"])
+    if len(full_names) != constructed:
+        raise IntegrityError(
+            f"{selection.domain} produced {len(full_names)} derived features; "
+            f"expected {constructed}"
+        )
+    audit = _select_derived_features(
+        frame, training_visits, selection.domain, selection.fold, config
+    )
+    names = audit["feature_name"].tolist()
+    frame = frame[["cohort_visit_number", *names]].copy()
     expected = int(config["features"][selection.domain]["expected_count"])
     if len(names) != expected:
         raise IntegrityError(
-            f"{selection.domain} produced {len(names)} features; expected {expected}"
+            f"{selection.domain} retained {len(names)} features; expected {expected}"
         )
+    schema_material = [
+        {"name": name, "dtype": str(frame[name].dtype)}
+        for name in names
+    ]
     return DomainFeatures(
         domain=selection.domain,
         fold=selection.fold,
         frame=frame,
         feature_names=names,
-        feature_hash=hash_object(names),
+        full_feature_count=len(full_names),
+        selection_audit=audit,
+        feature_schema_hash=hash_object(schema_material),
+        feature_value_hash=hash_frame(
+            frame, ["cohort_visit_number", *names]
+        ),
     )
+
+
+def _select_derived_features(
+    frame: pd.DataFrame,
+    training_visits: set[int],
+    domain: str,
+    fold: int,
+    config: dict[str, Any],
+) -> pd.DataFrame:
+    """Rank raw derived columns using training-fold occurrence/availability only.
+
+    Measurement summaries are available when nonmissing; measurement counts occur
+    when positive; and a measurement missingness flag is considered available
+    when it is zero (the concept was observed). Medication/procedure counts,
+    exposures, and aggregates occur when positive; time-to-first is available
+    when nonmissing. Outcomes and validation-row distributions are never read.
+    """
+    training = frame.loc[frame["cohort_visit_number"].isin(training_visits)].copy()
+    if set(training["cohort_visit_number"]) != set(training_visits):
+        raise IntegrityError(f"{domain} derived-feature ranking lost training visits")
+    rows: list[dict[str, Any]] = []
+    for name in (column for column in frame if column != "cohort_visit_number"):
+        values = training[name]
+        if name.endswith("__missing"):
+            occurred = values.eq(0)
+            definition = "measurement_concept_observed"
+        elif name.endswith("__count") or name.endswith("__exposure"):
+            occurred = pd.to_numeric(values, errors="coerce").fillna(0).gt(0)
+            definition = "positive_occurrence"
+        elif name == "time_to_first_drug_in_hours":
+            occurred = values.notna()
+            definition = "nonmissing_availability"
+        elif domain == "measurements":
+            occurred = values.notna()
+            definition = "nonmissing_availability"
+        else:
+            occurred = pd.to_numeric(values, errors="coerce").fillna(0).gt(0)
+            definition = "positive_occurrence"
+        rows.append(
+            {
+                "fold": fold,
+                "domain": domain,
+                "feature_name": name,
+                "training_visit_occurrence": int(occurred.sum()),
+                "training_visit_count": len(training),
+                "occurrence_definition": definition,
+            }
+        )
+    ranking = pd.DataFrame(rows).sort_values(
+        ["training_visit_occurrence", "feature_name"],
+        ascending=[False, True],
+        kind="stable",
+    ).reset_index(drop=True)
+    ranking["rank"] = np.arange(1, len(ranking) + 1, dtype=np.int64)
+    keep = int(config["features"]["retained_derived_feature_count"])
+    if len(ranking) < keep:
+        raise IntegrityError(
+            f"{domain} fold {fold} has only {len(ranking)} derived features; {keep} required"
+        )
+    selected = ranking.iloc[:keep].copy()
+    selected["selected"] = True
+    selected["derived_selection_hash"] = hash_frame(
+        selected,
+        [
+            "fold",
+            "domain",
+            "rank",
+            "feature_name",
+            "training_visit_occurrence",
+            "occurrence_definition",
+        ],
+    )
+    return selected[
+        [
+            "fold",
+            "domain",
+            "rank",
+            "feature_name",
+            "training_visit_occurrence",
+            "training_visit_count",
+            "occurrence_definition",
+            "selected",
+            "derived_selection_hash",
+        ]
+    ]
 
 
 def _measurement_features(

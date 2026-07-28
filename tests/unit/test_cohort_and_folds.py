@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from clinical_domain_mortality.cohort import create_patient_folds
+from clinical_domain_mortality.cohort import build_cohort, create_patient_folds
+from clinical_domain_mortality.features import prepare_domain_events
 
 
 def test_cohort_landmark_outcome_and_early_death(cohort_result):
@@ -66,3 +67,20 @@ def test_fold_integrity_hard_fails_for_too_few_groups(chorus_config):
     )
     with pytest.raises(ValueError):
         create_patient_folds(cohort, chorus_config)
+
+
+def test_predictor_window_changes_events_without_changing_landmark(
+    chorus_data, mutable_config
+):
+    mutable_config["cohort"]["predictor_window_hours"] = 6
+    cohort = build_cohort(chorus_data, mutable_config)
+    prepared = prepare_domain_events(chorus_data, cohort.cohort, mutable_config)
+    assert (
+        cohort.cohort["landmark_datetime"] - cohort.cohort["start_datetime"]
+    ).eq(pd.Timedelta(hours=24)).all()
+    assert (
+        cohort.cohort["configured_predictor_end_datetime"]
+        - cohort.cohort["start_datetime"]
+    ).eq(pd.Timedelta(hours=6)).all()
+    for frame in prepared.events.values():
+        assert (frame["hours_from_start"] < 6).all()

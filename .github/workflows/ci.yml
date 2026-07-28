@@ -19,5 +19,6 @@ jobs:
       - run: make install
       - run: make lint
       - run: make test
+      - run: make test-full
       - run: make synthetic-run
       - run: make verify

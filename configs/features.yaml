@@ -1,10 +1,14 @@
 features:
   concept_count: 50
+  retained_derived_feature_count: 21
   ranking: visit_prevalence
   tie_break: normalized_concept_key
+  derived_feature_ranking: training_visit_occurrence_or_availability
+  derived_feature_tie_break: feature_name
   measurements:
     statistics: [mean, max, min, sd, count, missing]
-    expected_count: 300
+    constructed_count: 300
+    expected_count: 21
     sd_ddof: 1
     single_value_sd: 0.0
     unit_policy: confirmed_rules
@@ -12,14 +16,16 @@ features:
       default: [u]
     conversions: {}
   medications:
-    expected_count: 104
+    constructed_count: 104
+    expected_count: 21
     qualifying_semantics: [administration, prescription, order]
     require_explicit_semantics: true
     aggregates:
       [any_drug_24h, unique_drug_count_24h, repeat_drug_exposure_count_24h,
        time_to_first_drug_in_hours]
   procedures:
-    expected_count: 103
+    constructed_count: 103
+    expected_count: 21
     qualifying_semantics: [performed, coded, claim, order]
     require_explicit_semantics: true
     aggregates:

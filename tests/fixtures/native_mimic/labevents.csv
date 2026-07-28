@@ -1,0 +1,3 @@
+labevent_id,subject_id,hadm_id,itemid,charttime,valuenum,valueuom
+3001,1001,2001,50868,2020-01-01 09:00:00,14.0,u
+3002,1002,2002,50868,2020-02-01 09:00:00,16.0,u

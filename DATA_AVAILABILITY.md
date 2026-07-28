@@ -1,10 +1,12 @@
 # Data availability
 
-CHoRUS is a restricted clinical dataset and is not distributed here. Its analysis requires
-authorization from the relevant data steward and a site-confirmed mapping. MIMIC-IV must be
-obtained by credentialed users under the PhysioNet data-use terms; this repository does not
-redistribute it.
+CHoRUS is restricted and is not distributed. Its analysis requires authorization, the exact
+snapshot identifier, confirmed site mapping, and approved unit rules.
 
-The committed synthetic CHoRUS-like and MIMIC-IV-like tables contain no real patient records and
-exercise the complete method. They demonstrate code reproducibility, not reproduction of protected
-study results.
+MIMIC-IV must be obtained by credentialed users under PhysioNet terms. No MIMIC data is included.
+The manuscript's exact MIMIC release is unconfirmed, so paper mode does not substitute another
+release.
+
+Committed synthetic CHoRUS-like and native-MIMIC-like tables contain no real records. They test
+the pipeline and aggregate calculations; they do not reproduce or approximate protected paper
+results.

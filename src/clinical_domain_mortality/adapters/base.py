@@ -10,7 +10,7 @@ import pandas as pd
 
 from ..config import resolve_project_path
 from ..errors import ConfigurationError, SchemaError
-from ..hashing import hash_file, hash_object
+from ..hashing import hash_file, hash_frame_canonical, hash_object
 from ..io import find_table, read_table
 from ..schemas import EVENT_COLUMNS, STANDARD_COLUMNS, validate_standardized
 
@@ -42,6 +42,16 @@ class SourceAdapter(ABC):
 
     def _build_result(self, raw: dict[str, pd.DataFrame]) -> StandardizedData:
         tables = self._normalize(raw)
+        return self._finalize_standardized(
+            tables, {name: len(frame) for name, frame in raw.items()}
+        )
+
+    def _finalize_standardized(
+        self,
+        tables: dict[str, pd.DataFrame],
+        source_rows: dict[str, int],
+    ) -> StandardizedData:
+        """Validate standardized tables and attach value-sensitive provenance."""
         metadata_parts = []
         for domain in ("measurements", "medications", "procedures"):
             event = tables[domain]
@@ -66,17 +76,33 @@ class SourceAdapter(ABC):
             "tables": self.source.get("tables"),
             "columns": self.source.get("columns"),
             "semantics": self.source.get("source_semantics"),
+            "native": self.source.get("native"),
+            "release_or_snapshot": self.source.get(
+                "release_or_snapshot", self.source.get("expected_version")
+            ),
+            "deterministic_subsample": self.source.get("deterministic_subsample"),
             "observation_mode": self.source.get("observation_mode"),
             "confirmed": self.source.get("mapping_confirmed"),
         }
+        analytical_hashes = {
+            name: hash_frame_canonical(frame)
+            for name, frame in sorted(tables.items())
+            if name != "metadata"
+        }
+        analytical_hashes["source_release_or_snapshot"] = hash_object(
+            self.source.get("release_or_snapshot")
+            or self.source.get("expected_version")
+            or "synthetic"
+        )
         result = StandardizedData(
             tables=tables,
-            input_hashes=dict(sorted(self._input_hashes.items())),
+            input_hashes=dict(sorted(analytical_hashes.items())),
             mapping_hash=hash_object(mapping_material),
             audit={
                 "adapter": self.config["adapter"],
-                "source_rows": {name: len(frame) for name, frame in raw.items()},
+                "source_rows": source_rows,
                 "standardized_rows": {name: len(frame) for name, frame in tables.items()},
+                "source_file_digests": dict(sorted(self._input_hashes.items())),
             },
         )
         self.validate(result)
@@ -88,6 +114,12 @@ class SourceAdapter(ABC):
         for name in ("patients", "encounters", "deaths", "diagnoses"):
             required = STANDARD_COLUMNS[name]
             tables[name] = self._map(raw[name], columns[name], required, name)
+        for column in ("age_anchor", "age_anchor_year", "anchor_year_group"):
+            if column not in tables["patients"]:
+                tables["patients"][column] = pd.NA
+        for column in ("race_at_admission", "ethnicity_at_admission"):
+            if column not in tables["encounters"]:
+                tables["encounters"][column] = pd.NA
         for domain in ("measurements", "medications", "procedures"):
             tables[domain] = self._map(raw[domain], columns[domain], EVENT_COLUMNS, domain)
             tables[domain]["source_table"] = self.source["tables"][domain]
@@ -118,6 +150,7 @@ class SourceAdapter(ABC):
         result = pd.DataFrame(index=frame.index)
         optional = {
             "diagnosis_id",
+            "icd_version",
             "visit_id",
             "source_visit_id",
             "bridge_key",
@@ -177,6 +210,7 @@ class SourceAdapter(ABC):
                     "concept_key",
                     "concept_name",
                     "code",
+                    "icd_version",
                     "unit",
                     "semantics",
                     "source_table",
@@ -195,6 +229,7 @@ class LocalFileAdapter(SourceAdapter):
             raise ConfigurationError(f"Source root does not exist: {root}")
         raw: dict[str, pd.DataFrame] = {}
         format_hint = self.source.get("file_format", "auto")
+        table_paths: dict[str, Any] = {}
         for standard, source_name in self.source["tables"].items():
             if standard in {"bridge", "observations"}:
                 try:
@@ -204,6 +239,126 @@ class LocalFileAdapter(SourceAdapter):
                     continue
             else:
                 path = find_table(root, source_name, format_hint)
-            raw[standard] = read_table(path)
+            table_paths[standard] = path
             self._input_hashes[path.relative_to(root).as_posix()] = hash_file(path)
+        core_order = ("patients", "encounters", "deaths")
+        for standard in core_order:
+            raw[standard] = read_table(
+                table_paths[standard],
+                columns=self._source_columns(standard),
+            )
+        candidate_visits = self._candidate_visit_ids(raw["encounters"])
+        encounter_mapping = self.source["columns"]["encounters"]
+        visit_source_column = encounter_mapping["visit_id"]
+        patient_source_column = encounter_mapping["patient_id"]
+        candidate_patients = set(
+            raw["encounters"].loc[
+                raw["encounters"][visit_source_column].isin(candidate_visits),
+                patient_source_column,
+            ].tolist()
+        )
+        start_source_column = encounter_mapping["start_datetime"]
+        starts = pd.to_datetime(
+            raw["encounters"].loc[
+                raw["encounters"][visit_source_column].isin(candidate_visits),
+                start_source_column,
+            ],
+            errors="coerce",
+        )
+        window = pd.to_timedelta(
+            float(self.config["cohort"]["predictor_window_hours"]), unit="h"
+        )
+        time_range = (
+            starts.min(),
+            starts.max() + window,
+        )
+        for standard in ("diagnoses", "measurements", "medications", "procedures"):
+            allowed: dict[str, set[Any]] = {}
+            allowed_any: dict[str, set[Any]] = {}
+            source_visit = self.source["columns"][standard].get(
+                "source_visit_id" if standard != "diagnoses" else "visit_id"
+            )
+            source_patient = self.source["columns"][standard].get("patient_id")
+            if standard == "diagnoses" and source_patient:
+                allowed[source_patient] = candidate_patients
+            else:
+                if source_visit:
+                    allowed_any[source_visit] = candidate_visits
+                if source_patient:
+                    allowed_any[source_patient] = candidate_patients
+            event_target = (
+                "diagnosis_datetime" if standard == "diagnoses" else "event_datetime"
+            )
+            event_source = self.source["columns"][standard].get(event_target)
+            bounds = (
+                (
+                    event_source,
+                    time_range[0]
+                    - pd.Timedelta(
+                        days=int(self.config["cohort"]["prior_lookback_days"])
+                    ),
+                    (
+                        time_range[1]
+                        + pd.Timedelta(
+                            days=int(self.config["cohort"]["outcome_horizon_days"])
+                        )
+                        if standard == "diagnoses"
+                        else time_range[1]
+                    ),
+                )
+                if event_source and pd.notna(time_range[0])
+                else None
+            )
+            raw[standard] = read_table(
+                table_paths[standard],
+                columns=self._source_columns(standard),
+                allowed_values=allowed,
+                allowed_any=allowed_any,
+                time_bounds=bounds,
+            )
+        for standard in ("bridge", "observations"):
+            if standard in raw or standard not in table_paths:
+                continue
+            if not self.source.get("columns", {}).get(standard):
+                raw[standard] = pd.DataFrame()
+                continue
+            allowed = {}
+            visit_column = self.source.get("columns", {}).get(standard, {}).get("visit_id")
+            if visit_column:
+                allowed[visit_column] = candidate_visits
+            raw[standard] = read_table(
+                table_paths[standard],
+                columns=self._source_columns(standard),
+                allowed_values=allowed,
+            )
         return raw
+
+    def _source_columns(self, standard: str) -> list[str]:
+        mapping = self.source.get("columns", {}).get(standard, {})
+        columns = [str(value) for value in mapping.values() if value]
+        if not columns:
+            raise ConfigurationError(f"No source columns configured for {standard}")
+        return list(dict.fromkeys(columns))
+
+    def _candidate_visit_ids(self, encounters: pd.DataFrame) -> set[Any]:
+        """Apply source-mapped acute/non-elective predicates before event scans."""
+        mapping = self.source["columns"]["encounters"]
+        visit_column = mapping["visit_id"]
+        keep = pd.Series(True, index=encounters.index)
+        visit_type = mapping.get("visit_type")
+        if visit_type:
+            acute = {
+                str(value).casefold()
+                for value in self.config["cohort"]["acute_visit_types"]
+            }
+            keep &= encounters[visit_type].astype("string").str.casefold().isin(acute)
+        elective = mapping.get("elective")
+        if elective:
+            excluded = {
+                str(value).strip().casefold()
+                for value in self.config["cohort"]["excluded_elective_values"]
+            }
+            keep &= ~encounters[elective].astype("string").str.strip().str.casefold().isin(
+                excluded
+            )
+        return set(encounters.loc[keep, visit_column].tolist())

@@ -4,37 +4,43 @@
 
 | Field | Definition |
 |---|---|
-| `age` | Years at admission; no age component is added to Charlson. |
-| `sex`, `race`, `ethnicity` | Source-normalized categorical values. |
+| `age` | Years at admission; MIMIC uses its anchor-year formula. No age weight enters Charlson. |
+| `sex`, `race`, `ethnicity` | Explicitly normalized categorical values. |
 | `visit_type` | Configured acute encounter category. |
-| `prior_visit_count` | Distinct prior encounters in the 365-day lookback. |
-| `prior_acute_visit_count` | Distinct prior configured acute encounters in lookback. |
+| `prior_visit_count` | Distinct prior encounters in the lookback. |
+| `prior_acute_visit_count` | Distinct prior configured acute encounters in the lookback. |
 | `prior_visit_indicator` | One when any prior encounter exists. |
-| `prior_charlson_score` | Sum of category weights from prior acute encounters only. |
+| `prior_charlson_score` | Hierarchy-adjusted non-age score from prior acute admissions only. |
 
-## Measurements (300 columns per fold)
+## Top-50 concept construction
 
-The 50 training-selected usable numeric concepts each contribute `mean`, `max`, `min`, sample
-`sd` (`ddof=1`, zero for one value), valid-value `count`, and `missing`. With no valid value,
-summaries stay missing until training median imputation, count is zero, and missing is one.
-Categorical results and unconfirmed/incompatible units are not coerced. Confirmed conversions are
-configuration-driven; a training-mode unit option, when explicitly chosen, learns the unit only
-from training visits.
+Within each outer training fold, concepts are ranked by distinct training acute-care visits with
+at least one qualifying record. Ties use normalized concept key. Outcomes are not read.
 
-## Medications (104 columns per fold)
+- Measurements: 50 concepts x mean, maximum, minimum, sample SD, valid count, missing flag = 300.
+- Medications: 50 x exposure/count plus four all-concept aggregates = 104.
+- Procedures: 50 x exposure/count plus three all-concept aggregates = 103.
 
-Each of 50 training-selected concepts contributes qualifying-record exposure and count.
-`any_drug_24h`, `unique_drug_count_24h`, `repeat_drug_exposure_count_24h`, and
-`time_to_first_drug_in_hours` use every qualifying concept, not only selected concepts. Repeat
-count is the sum of records beyond the first within each visit-concept. Time is missing with no
-drug.
+Measurement summaries remain missing until training-fold median imputation. SD uses `ddof=1` and
+is zero for one value. Incompatible or nonnumeric measurement rows do not become values. Drug and
+procedure zeros mean no qualifying record, not proof that care was absent.
 
-## Procedures (103 columns per fold)
+## Requested top-21 derived-feature override
 
-Each of 50 training-selected concepts contributes qualifying-record exposure and count.
-`any_procedure_24h`, `unique_procedure_count_24h`, and `procedure_count_total_24h` use every
-qualifying concept.
+The 300/104/103 candidate columns are ranked before imputation using outer-training visits only:
 
-Every feature frame retains every frozen visit and the same row order. Medication/procedure zeros
-mean no qualifying record, not a claim that no care occurred. Source semantics are retained in
-selection and mapping audits.
+- measurement mean/max/min/SD are available when nonmissing;
+- a measurement count occurs when positive;
+- a measurement missing flag is counted as available when zero, meaning the concept was observed;
+- medication/procedure exposure, count, and numeric aggregates occur when positive;
+- time-to-first-drug is available when nonmissing.
+
+Rank is descending training-visit occurrence/availability, then ascending exact feature name.
+Exactly 21 columns per domain are retained and applied unchanged to validation visits. The same
+fold/domain list is reused in every matrix containing that domain. The audit records rank,
+training occurrence, denominator, definition, and selection hash.
+
+This rule is unsupervised and contains no outcome, validation frequency, missingness, value, unit
+choice, or preprocessing information. It was not specified by the finalized PDF or historical
+analysis code; it is an explicit methodological override required by the current implementation
+request.

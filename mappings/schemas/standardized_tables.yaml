@@ -1,8 +1,10 @@
-patients: [patient_id, birth_datetime, sex, race, ethnicity]
+patients: [patient_id, birth_datetime, sex, race, ethnicity, age_anchor, age_anchor_year,
+  anchor_year_group]
 encounters: [visit_id, patient_id, start_datetime, end_datetime, visit_type, elective,
-  followup_end_datetime]
+  followup_end_datetime, race_at_admission, ethnicity_at_admission]
 deaths: [patient_id, death_datetime]
-diagnoses: [diagnosis_id, visit_id, patient_id, diagnosis_datetime, code, source_table]
+diagnoses: [diagnosis_id, visit_id, patient_id, diagnosis_datetime, code, icd_version,
+  source_table]
 events: [event_id, source_visit_id, bridge_key, patient_id, event_datetime, concept_key,
   concept_name, value, unit, source_table, semantics]
 bridge: [bridge_key, visit_id]

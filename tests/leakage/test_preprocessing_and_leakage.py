@@ -48,6 +48,7 @@ def test_datetime_predictor_hard_fails(chorus_config):
 
 def test_duplicate_or_missing_oof_predictions_hard_fail(cohort_result):
     cohort = cohort_result.cohort.iloc[:2]
+    assignments = cohort[["cohort_visit_number", "patient_id"]].assign(fold=[0, 1])
     duplicate = pd.DataFrame(
         {
             "cohort_visit_number": [1, 1],
@@ -58,11 +59,14 @@ def test_duplicate_or_missing_oof_predictions_hard_fail(cohort_result):
         }
     )
     with pytest.raises(IntegrityError):
-        validate_oof_predictions(duplicate, cohort, ["baseline"], ["m"])
+        validate_oof_predictions(
+            duplicate, cohort, assignments, ["baseline"], ["m"]
+        )
 
 
 def test_invalid_probability_hard_fails(cohort_result):
     cohort = cohort_result.cohort.iloc[:2].copy()
+    assignments = cohort[["cohort_visit_number", "patient_id"]].assign(fold=[0, 1])
     predictions = pd.DataFrame(
         {
             "cohort_visit_number": cohort["cohort_visit_number"],
@@ -73,7 +77,27 @@ def test_invalid_probability_hard_fails(cohort_result):
         }
     )
     with pytest.raises(IntegrityError):
-        validate_oof_predictions(predictions, cohort, ["baseline"], ["m"])
+        validate_oof_predictions(
+            predictions, cohort, assignments, ["baseline"], ["m"]
+        )
+
+
+def test_swapped_valid_looking_oof_fold_labels_hard_fail(cohort_result):
+    cohort = cohort_result.cohort.iloc[:2].copy()
+    assignments = cohort[["cohort_visit_number", "patient_id"]].assign(fold=[0, 1])
+    predictions = pd.DataFrame(
+        {
+            "cohort_visit_number": cohort["cohort_visit_number"],
+            "matrix": "baseline",
+            "model": "m",
+            "fold": [1, 0],
+            "probability": [0.2, 0.8],
+        }
+    )
+    with pytest.raises(IntegrityError, match="frozen fold"):
+        validate_oof_predictions(
+            predictions, cohort, assignments, ["baseline"], ["m"]
+        )
 
 
 def test_wrong_positive_class_labels_hard_fail(chorus_config):

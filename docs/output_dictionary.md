@@ -2,29 +2,36 @@
 
 | Output | Content |
 |---|---|
-| `attrition.csv` | Visit/patient counts after every cohort rule. |
-| `fold_summary.csv` | Aggregate visit, patient, and outcome counts per frozen fold. |
-| `event_linkage_audit.csv` | Direct, bridge, patient-time, unmatched, window-excluded counts. |
-| `fold_concept_selections.csv` | Synthetic/non-sensitive fold ranks, prevalence, semantics, units, hashes. |
-| `feature_manifest.csv` | Fold/domain feature counts and hashes. |
-| `feature_dictionary.csv` | Synthetic/non-sensitive fold/domain feature names and selection hashes. |
-| `fold_metrics.csv` | All 160 validation-fold metric rows. |
-| `fold_metric_summaries.csv` | Mean and sample SD across five folds. |
-| `pooled_oof_metrics.csv` | Performance and threshold-0.5 metrics for all 32 combinations. |
-| `all_metric_confidence_intervals.csv` | Patient-percentile bootstrap intervals and invalid counts. |
-| `best_model_by_matrix.csv` | AUPRC/AUROC/Brier/frozen-order selection per matrix. |
-| `selected_model_performance_table.csv` | Manuscript-ready performance estimates and intervals. |
-| `selected_model_clinical_utility_table.csv` | 90%-specificity and top-10%-risk results. |
-| `selected_model_calibration_table.csv` | Brier, intercept/slope, calibration-in-large, ECE, bins. |
-| `selected_models_roc_coordinates.csv` | Complete, non-interpolated selected-model ROC points. |
-| `selected_models_calibration_coordinates.csv` | Deterministic quantile-bin counts, risks, rates, Wilson CIs. |
-| `selected_models_decision_curve_coordinates.csv` | Model/treat-all/treat-none net benefit and bootstrap CIs. |
+| `attrition.csv` | Counts after each cohort rule; written before a count-mismatch failure. |
+| `expected_vs_observed_counts.csv` | Paper/validation targets against actual counts on failure. |
+| `failed_run_manifest.json` | Safe restricted diagnostic status for a failed count check. |
+| `fold_summary.csv` | Aggregate visit, patient, and outcome counts per fold. |
+| `event_linkage_audit.csv` | Direct, bridge, patient-time, unmatched, and window counts. |
+| `fold_concept_selections.csv` | Per-fold top-50 rank/prevalence/semantics/units/hash when classification permits. |
+| `fold_derived_feature_selections.csv` | Per-fold top-21 rank, training occurrence, definition, and hash. |
+| `feature_manifest.csv` | Constructed/retained counts plus schema and value hashes. |
+| `matrix_manifest.csv` | Matrix row/count, schema hash, and feature-matrix value hash. |
+| `fold_metrics.csv`, `fold_metric_summaries.csv` | Fold estimates and mean/sample SD. |
+| `pooled_oof_metrics.csv` | All 32 pooled combinations and threshold-0.5 metrics. |
+| `all_metric_confidence_intervals.csv` | Patient-clustered percentile intervals/invalid replicates. |
+| `best_model_by_matrix.csv` | Frozen AUPRC/AUROC/Brier/model-order selection. |
+| `selected_models_roc_coordinates.csv` | Full selected-model ROC coordinates. |
+| `selected_models_sensitivity_at_90_specificity.csv` | Selected operating point, achieved specificity, and PPV. |
+| `selected_models_top_10_percent_risk_analysis.csv` | Exact ceiling-size risk group and deterministic ties. |
+| `selected_models_calibration_summary.csv` | Brier, intercept/slope, calibration-in-the-large, ECE. |
+| `selected_models_calibration_coordinates.csv` | Quantile-bin coordinates and event-rate intervals. |
+| `selected_models_decision_curve_coordinates.csv` | Model, treat-all, treat-none net benefit and intervals. |
 | `prespecified_paired_matrix_comparisons.csv` | Shared-patient-bootstrap matrix increments. |
-| `manifests/*.json` | Input/output/config/mapping/cohort/row/fold/selection/software provenance. |
+| selected-model tables | Performance, clinical utility, and calibration manuscript inputs. |
+| `manifests/*.json` | Input/config/mapping/cohort/row/fold/selection/domain/matrix/model/output provenance. |
 
-Restricted outputs contain `base_acute_care_cohort.parquet`, `baseline_X.parquet`,
-`fold_assignments_restricted.csv`, prepared event Parquets, protected selection/importance files
-when needed, all per-fold 300/104/103 domain matrices, and `oof_predictions_restricted.csv`.
+Restricted outputs include source identities, frozen cohort/baseline, assignments, prepared
+events, fold features, clinical concept lists, feature importance, and OOF predictions.
 
-Analytical CSVs retain full precision. Plotting code must read coordinates without recomputing
-statistics.
+`feature_schema_hash` covers ordered names/types. `feature_value_hash` and
+`feature_matrix_hash` cover identities, ordered columns/types, and values. Canonical analytical
+input signatures are row-order-independent where source row order is incidental.
+
+Synthetic verification pins every deterministic aggregate file except the timestamp-bearing root
+run manifest, whose stable safe fields are pinned separately. Missing, unexpected, or mutated
+artifacts fail verification.

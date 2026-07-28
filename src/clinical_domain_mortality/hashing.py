@@ -59,3 +59,51 @@ def hash_frame(frame: pd.DataFrame, columns: list[str] | None = None) -> str:
     selected = frame.loc[:, columns] if columns else frame
     records = selected.astype(object).where(pd.notna(selected), None).to_dict(orient="records")
     return hash_object(records)
+
+
+def hash_frame_schema(frame: pd.DataFrame) -> str:
+    """Hash ordered column names and dtypes, without hashing values."""
+    return hash_object(
+        [{"name": str(column), "dtype": str(frame[column].dtype)} for column in frame]
+    )
+
+
+def hash_frame_values(
+    frame: pd.DataFrame,
+    *,
+    identity_columns: list[str] | None = None,
+) -> str:
+    """Hash ordered identities, columns, dtypes, and values."""
+    if identity_columns:
+        missing = set(identity_columns) - set(frame)
+        if missing:
+            raise ValueError(f"Missing identity columns for feature hash: {sorted(missing)}")
+    return hash_object(
+        {
+            "schema": [
+                {"name": str(column), "dtype": str(frame[column].dtype)}
+                for column in frame
+            ],
+            "identity_columns": identity_columns or [],
+            "records": frame.astype(object)
+            .where(pd.notna(frame), None)
+            .to_dict(orient="records"),
+        }
+    )
+
+
+def hash_frame_canonical(frame: pd.DataFrame) -> str:
+    """Content-sensitive, row-order-independent digest of an analytical table."""
+    schema = sorted(
+        [{"name": str(column), "dtype": str(frame[column].dtype)} for column in frame],
+        key=lambda item: item["name"],
+    )
+    ordered_columns = [item["name"] for item in schema]
+    records = (
+        frame.loc[:, ordered_columns]
+        .astype(object)
+        .where(pd.notna(frame.loc[:, ordered_columns]), None)
+        .to_dict(orient="records")
+    )
+    row_hashes = sorted(hash_object(record) for record in records)
+    return hash_object({"schema": schema, "rows": row_hashes, "row_count": len(records)})

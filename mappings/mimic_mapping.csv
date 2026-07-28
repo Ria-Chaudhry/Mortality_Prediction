@@ -1,8 +1,26 @@
-standard_table,standard_field,source_table,source_column,semantics
-patients,patient_id,patients,subject_id,identity
-encounters,visit_id,admissions,hadm_id,acute_care_admission
-deaths,death_datetime,deaths,dod,recorded_death
-diagnoses,code,diagnoses_icd,icd_code,coded_diagnosis
-measurements,value,labevents,valuenum,laboratory_result
-medications,concept_key,prescriptions,formulary_drug_cd,prescription
-procedures,concept_key,procedures_icd,icd_code,coded_procedure
+standard_table,standard_field,source_table,source_column,derivation_or_semantics
+patients,patient_id,patients,subject_id,direct identifier retained only in restricted processing
+patients,sex,patients,gender,direct
+patients,age_anchor,patients,anchor_age,direct
+patients,age_anchor_year,patients,anchor_year,direct
+patients,anchor_year_group,patients,anchor_year_group,audit
+encounters,visit_id,admissions,hadm_id,direct identifier retained only in restricted processing
+encounters,patient_id,admissions,subject_id,direct
+encounters,start_datetime,admissions,admittime,direct
+encounters,end_datetime,admissions,dischtime,direct
+encounters,visit_type,admissions,admission_type,explicit configured harmonization required
+encounters,race,admissions,race,explicit configured harmonization required
+deaths,death_datetime,patients,dod,earliest nonmissing dod or admissions.deathtime
+deaths,death_datetime,admissions,deathtime,earliest nonmissing dod or deathtime
+diagnoses,code,diagnoses_icd,icd_code,direct
+diagnoses,icd_version,diagnoses_icd,icd_version,required version-aware Charlson input
+measurements,concept_key,labevents,itemid,namespaced as labevents:itemid
+measurements,event_datetime,labevents,charttime,direct
+measurements,value,labevents,valuenum,numeric only
+measurements,unit,labevents,valueuom,direct
+medications,concept_key,prescriptions,formulary_drug_cd,configurable among formulary_drug_cd gsn ndc drug
+medications,event_datetime,prescriptions,starttime,prescription timing
+medications,semantics,prescriptions,,explicit configured prescription/order/dispensing/administration label
+procedures,concept_key,procedures_icd,icd_code,namespaced with source and icd_version
+procedures,event_datetime,procedures_icd,chartdate,coded procedure date
+procedures,semantics,procedures_icd,,explicit configured coded/performed/order/imaging/other label

@@ -16,7 +16,10 @@ def test_both_adapters_satisfy_same_schema(chorus_data, mimic_data):
         assert list(chorus_data.tables[name].columns) == list(
             mimic_data.tables[name].columns
         )
-        assert len(chorus_data.tables[name]) == len(mimic_data.tables[name])
+        if name not in {"bridge", "metadata"}:
+            assert len(chorus_data.tables[name]) == len(mimic_data.tables[name])
+    assert len(chorus_data.tables["bridge"]) > 0
+    assert mimic_data.tables["bridge"].empty
 
 
 def test_direct_bridge_patient_time_and_unmatched_are_audited(prepared_events):
