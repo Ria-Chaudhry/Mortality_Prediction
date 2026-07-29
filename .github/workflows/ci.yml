@@ -22,12 +22,15 @@ jobs:
       - run: make test-full
       - run: make synthetic-run
         if: always()
-      - run: make verify
+      - run: make verify 2>&1 | tee outputs/test-reports/verify.log
         if: always()
       - run: make paper-preflight-chorus
         if: always()
       - run: make paper-preflight-mimiciv
         if: always()
+      - name: Report CI failure diagnostics
+        if: failure()
+        run: python .github/report_ci_failures.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
