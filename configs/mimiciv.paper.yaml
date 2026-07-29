@@ -22,6 +22,13 @@ source:
     medication_concept_field: UNCONFIRMED
     medication_semantics: prescription
     procedure_semantics: coded
+    procedure_date_rule: calendar_dates_spanned_inclusive_v1
+    death_rule:
+      identifier: precise_admission_deathtime_then_patient_dod_v1
+      precise_source: admissions.deathtime
+      date_only_fallback_source: patients.dod
+      date_only_landmark_day: exclude_as_on_or_before_landmark
+      inconsistent_sources: prefer_precise_and_audit
     race_harmonization: {mode: identity}
     ethnicity_harmonization: {mode: UNCONFIRMED}
     admission_type_harmonization: UNCONFIRMED
@@ -36,6 +43,24 @@ paper:
   analysis_role: independent_replication
   exact_release_required: true
   methodological_override_top21_confirmed: false
+  selection_rule_reconciled: false
+  shap_method_reconciled: false
+  mortality_rule_reconciled: false
+  procedure_rule_reconciled: false
+  selection_rule_blocker: >-
+    UNRESOLVED: completed replication scripts used mutual information after
+    training-fold median imputation, retained 15 measurement features, and
+    ranked 250 medication concepts; the maintained manuscript specifies
+    training-support prevalence, 21 features, and 50 concepts per domain.
+  shap_method_blocker: >-
+    UNRESOLVED: stage-specific held-out permutation-SHAP code was recovered,
+    but no completed unified eight-matrix reconciliation procedure was found.
+  mortality_rule_blocker: >-
+    UNRESOLVED: corrected precision-preserving mortality labels have not been
+    reconciled against the completed date-normalized replication output.
+  procedure_rule_blocker: >-
+    UNRESOLVED: the recovered calendar-date rule is implemented, but real
+    procedure counts and selected features have not been reconciled.
   mapping_rules_confirmed: false
   measurement_unit_rules_approved: false
   charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1
@@ -47,7 +72,7 @@ paper:
     mimic_mapping.csv: 7a25e22c56f073ad2086095d2ce70ad04298f92697793a17784ddec3d361df0d
     charlson_mapping.csv: 8fd72969d9804ab85334d875045e5df8ea25743d0e7140ad15499f7e752ea4fc
   release_clearance:
-    classification: internal_restricted
+    classification: restricted
     approved: false
     small_cell_threshold: UNCONFIRMED
   manuscript_reconciled: false
@@ -62,7 +87,8 @@ frozen_design:
   patient_folds: {method: seeded_group_k_fold, count: 5, seed: 42}
   top_concepts_per_domain: 50
   retained_derived_features_per_domain: 21
-  derived_feature_ranking: training_visit_occurrence_or_availability
+  derived_feature_ranking: pre_imputation_training_visit_support_proportion
+  derived_feature_selection_rule: training_support_prevalence_v1
   matrices: 8
   models: [logistic_regression, random_forest, gradient_boosting, lightgbm]
 overrides:

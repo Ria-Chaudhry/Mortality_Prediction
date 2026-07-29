@@ -53,3 +53,24 @@ def test_measurement_unit_audit_is_public_only_for_synthetic_by_default(tmp_path
     )
     scan_public_tree(tmp_path, classification="public_synthetic")
     scan_public_tree(tmp_path, classification="release_candidate_aggregate")
+    with pytest.raises(IntegrityError, match="allowlist|small cell"):
+        scan_public_tree(
+            tmp_path,
+            classification="public_clinical",
+            small_cell_threshold=5,
+            release_approved=True,
+        )
+
+
+def test_approval_flag_cannot_bypass_public_clinical_small_cell_gate(tmp_path):
+    write_csv(
+        pd.DataFrame({"matrix": ["baseline"], "patients": [1]}),
+        tmp_path / "selected_model_performance_table.csv",
+    )
+    with pytest.raises(IntegrityError, match="small cell"):
+        scan_public_tree(
+            tmp_path,
+            classification="public_clinical",
+            small_cell_threshold=5,
+            release_approved=True,
+        )

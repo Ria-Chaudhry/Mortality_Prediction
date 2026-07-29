@@ -14,7 +14,10 @@ The right edge is exclusive. A short retained visit stops collection at its end.
 rejects a predictor window after the landmark unless an explicit documented override permits it.
 
 Death on or before the landmark excludes the visit. Outcome is one for death after the landmark
-and on or before 30 days from start. A zero requires the configured verified-follow-up rule.
+and on or before 30 days from start. For native MIMIC, precise `admissions.deathtime` takes
+priority; `patients.dod` is used only as a date-only fallback. No midnight is invented. A
+date-only death on the landmark calendar date is conservatively treated as on/before landmark,
+and source-date disagreement is audited. A zero requires the configured verified-follow-up rule.
 Native MIMIC follow-up policy must be explicit; paper mode will not infer it.
 
 Charlson and utilization use qualifying prior encounters beginning on or after

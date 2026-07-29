@@ -3,8 +3,9 @@ features:
   retained_derived_feature_count: 21
   ranking: visit_prevalence
   tie_break: normalized_concept_key
-  derived_feature_ranking: training_visit_occurrence_or_availability
-  derived_feature_tie_break: feature_name
+  derived_feature_selection_rule: training_support_prevalence_v1
+  derived_feature_ranking: pre_imputation_training_visit_support_proportion
+  derived_feature_tie_break: candidate_construction_order
   measurements:
     statistics: [mean, max, min, sd, count, missing]
     constructed_count: 300

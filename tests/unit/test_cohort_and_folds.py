@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pandas as pd
 import pytest
 
@@ -84,3 +86,62 @@ def test_predictor_window_changes_events_without_changing_landmark(
     ).eq(pd.Timedelta(hours=6)).all()
     for frame in prepared.events.values():
         assert (frame["hours_from_start"] < 6).all()
+
+
+@pytest.mark.parametrize(
+    ("precision", "offset", "expected_present", "expected_outcome"),
+    [
+        ("datetime", pd.Timedelta(hours=26), True, 1),
+        ("datetime", pd.Timedelta(hours=24), False, None),
+        ("datetime", pd.Timedelta(days=31), True, 0),
+        ("date", pd.Timedelta(days=1), False, None),
+        ("date", pd.Timedelta(days=5), True, 1),
+        (None, None, True, 0),
+    ],
+)
+def test_death_precision_boundaries_are_used_consistently(
+    chorus_data,
+    chorus_config,
+    precision,
+    offset,
+    expected_present,
+    expected_outcome,
+):
+    data = deepcopy(chorus_data)
+    patient = "P073"
+    visit = data.tables["encounters"].loc[
+        data.tables["encounters"]["patient_id"].eq(patient)
+    ].iloc[0]
+    deaths = data.tables["deaths"].loc[
+        ~data.tables["deaths"]["patient_id"].eq(patient)
+    ].copy()
+    if precision is not None:
+        value = visit["start_datetime"] + offset
+        deaths = pd.concat(
+            [
+                deaths,
+                pd.DataFrame(
+                    [
+                        {
+                            "patient_id": patient,
+                            "death_datetime": value if precision == "datetime" else pd.NaT,
+                            "death_date": value.normalize(),
+                            "death_time_precision": precision,
+                            "death_source": (
+                                "admissions.deathtime"
+                                if precision == "datetime"
+                                else "patients.dod"
+                            ),
+                            "death_source_conflict": False,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+    data.tables["deaths"] = deaths
+    result = build_cohort(data, chorus_config).cohort
+    observed = result.loc[result["patient_id"].eq(patient)]
+    assert (not observed.empty) is expected_present
+    if expected_present:
+        assert int(observed.iloc[0]["outcome"]) == expected_outcome

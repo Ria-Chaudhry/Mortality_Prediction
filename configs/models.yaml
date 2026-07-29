@@ -1,6 +1,18 @@
 models:
   seed: 42
   threads: 1
+  shap:
+    enabled: true
+    method_identifier: recovered_mimic_permutation_shap_v1
+    explainer: permutation
+    background_partition: outer_training_fold
+    evaluation_partition: outer_validation_fold
+    background_rows: 50
+    evaluation_rows: 100
+    seed: 42
+    evaluation_seed_offset: 100
+    minimum_max_evals: 101
+    batch_size: 20
   frozen_order: [logistic_regression, random_forest, gradient_boosting, lightgbm]
   logistic_regression:
     max_iter: 1000

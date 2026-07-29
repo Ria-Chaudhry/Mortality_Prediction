@@ -17,7 +17,14 @@ STANDARD_COLUMNS = {
         "elective",
         "followup_end_datetime",
     ],
-    "deaths": ["patient_id", "death_datetime"],
+    "deaths": [
+        "patient_id",
+        "death_datetime",
+        "death_date",
+        "death_time_precision",
+        "death_source",
+        "death_source_conflict",
+    ],
     "diagnoses": [
         "diagnosis_id",
         "visit_id",
@@ -36,6 +43,8 @@ EVENT_COLUMNS = [
     "bridge_key",
     "patient_id",
     "event_datetime",
+    "event_date",
+    "event_time_precision",
     "concept_key",
     "concept_name",
     "value",
@@ -71,8 +80,34 @@ def validate_standardized(tables: dict[str, pd.DataFrame]) -> None:
     )
     _require_unique(tables["patients"], "patients", ["patient_id"])
     _require_unique(tables["encounters"], "encounters", ["visit_id"])
+    death_precision = tables["deaths"]["death_time_precision"].dropna().astype(str)
+    if not death_precision.isin({"datetime", "date"}).all():
+        raise SchemaError("deaths contains an unsupported time-precision value")
+    if (
+        tables["deaths"]["death_time_precision"].eq("datetime")
+        & tables["deaths"]["death_datetime"].isna()
+    ).any():
+        raise SchemaError("A datetime-precision death lacks death_datetime")
+    if (
+        tables["deaths"]["death_time_precision"].eq("date")
+        & tables["deaths"]["death_date"].isna()
+    ).any():
+        raise SchemaError("A date-precision death lacks death_date")
     for name in ("measurements", "medications", "procedures"):
         _require_unique(tables[name], name, ["event_id"])
+        precision = tables[name]["event_time_precision"].dropna().astype(str)
+        if not precision.isin({"datetime", "date"}).all():
+            raise SchemaError(f"{name} contains an unsupported time-precision value")
+        if (
+            tables[name]["event_time_precision"].eq("datetime")
+            & tables[name]["event_datetime"].isna()
+        ).any():
+            raise SchemaError(f"A datetime-precision {name} event lacks event_datetime")
+        if (
+            tables[name]["event_time_precision"].eq("date")
+            & tables[name]["event_date"].isna()
+        ).any():
+            raise SchemaError(f"A date-precision {name} event lacks event_date")
 
 
 def _require_columns(frame: pd.DataFrame, name: str, columns: list[str]) -> None:

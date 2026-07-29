@@ -13,9 +13,9 @@ frozen cohort -> frozen patient folds -> linked predictor-window events
         |
 outer-training top 50 concepts -> candidate columns
         |
-outer-training top 21 derived columns -> eight matrices
+outer-training support rank -> exactly 21 derived columns/domain -> eight matrices
         |
-training-only preprocessing/model -> held-out probabilities
+training-only preprocessing/model -> held-out probabilities + selected-model held-out SHAP
         |
 OOF fold-identity validation -> aggregate analyses -> classified artifacts
 ```
@@ -28,6 +28,6 @@ One run accepts one dataset. The same fold/domain feature object is reused by ev
 containing that domain. There is no transfer of outcomes, concepts, folds, preprocessing, or
 models between CHoRUS and MIMIC.
 
-Real output roots are restricted by default. Their aggregate tables live in a restricted
-`release_candidate_aggregate` directory until the publication gate approves an allowlisted
-schema and small-cell policy. Synthetic aggregate output is public.
+Real output roots are restricted by default. A clinical aggregate becomes `public_clinical` only
+after an actual allowlist/small-cell scan runs and passes with explicit approval. Synthetic
+aggregate output is `public_synthetic`.

@@ -47,3 +47,7 @@ def test_feature_schema_and_value_hashes_have_honest_meanings():
     assert hash_frame_values(
         frame, identity_columns=["cohort_visit_number"]
     ) != hash_frame_values(changed, identity_columns=["cohort_visit_number"])
+    reordered = frame[["feature", "cohort_visit_number"]]
+    assert hash_frame_values(
+        frame, identity_columns=["cohort_visit_number"]
+    ) != hash_frame_values(reordered, identity_columns=["cohort_visit_number"])

@@ -11,6 +11,7 @@ import yaml
 
 from .errors import ConfigurationError
 from .hashing import hash_file, hash_object
+from .runtime import validate_supported_runtime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -39,6 +40,7 @@ def read_yaml(path: str | Path) -> dict[str, Any]:
 
 def load_config(source_config: str | Path) -> dict[str, Any]:
     """Load shared decisions, then the source mapping and explicit overrides."""
+    validate_supported_runtime()
     source_path = Path(source_config).resolve()
     config: dict[str, Any] = {}
     for filename in ("cohort.yaml", "features.yaml", "models.yaml", "evaluation.yaml"):
@@ -115,6 +117,23 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigurationError("The scientific design requires 50 concepts per domain")
     if config["features"]["retained_derived_feature_count"] != 21:
         raise ConfigurationError("The requested design requires 21 retained features per domain")
+    if config["features"].get("derived_feature_selection_rule") not in {
+        "training_support_prevalence_v1",
+        "mutual_information_after_training_median_v1",
+    }:
+        raise ConfigurationError("Unsupported derived-feature selection rule")
+    if config["adapter"] == "mimiciv" and config["source"].get("layout") == "native":
+        native = config["source"].get("native", {})
+        if native.get("procedure_date_rule") != "calendar_dates_spanned_inclusive_v1":
+            raise ConfigurationError(
+                "Native MIMIC procedure date rule is unresolved or unsupported"
+            )
+        if native.get("death_rule", {}).get("identifier") != (
+            "precise_admission_deathtime_then_patient_dod_v1"
+        ):
+            raise ConfigurationError(
+                "Native MIMIC death ascertainment rule is unresolved or unsupported"
+            )
     if config["cohort"]["landmark_hours"] != 24:
         raise ConfigurationError("The scientific design requires a 24-hour landmark")
     predictor_window = float(config["cohort"]["predictor_window_hours"])
@@ -150,6 +169,8 @@ def _paper_unresolved_fields(config: dict[str, Any]) -> list[str]:
         ("source", "release_or_snapshot"),
         ("source", "mapping_confirmed"),
         ("paper", "methodological_override_top21_confirmed"),
+        ("paper", "selection_rule_reconciled"),
+        ("paper", "shap_method_reconciled"),
         ("paper", "mapping_rules_confirmed"),
         ("paper", "measurement_unit_rules_approved"),
         ("paper", "expected_event_counts"),
@@ -171,6 +192,10 @@ def _paper_unresolved_fields(config: dict[str, Any]) -> list[str]:
     release = config.get("paper", {}).get("release_clearance", {})
     if release.get("small_cell_threshold") in {None, "UNCONFIRMED"}:
         unresolved.append("paper.release_clearance.small_cell_threshold")
+    if config.get("adapter") == "mimiciv":
+        for key in ("mortality_rule_reconciled", "procedure_rule_reconciled"):
+            if not config.get("paper", {}).get(key):
+                unresolved.append(f"paper.{key}")
     for section in ("source", "paper", "frozen_design"):
         _collect_unresolved_markers(config.get(section), section, unresolved)
     return sorted(set(unresolved))

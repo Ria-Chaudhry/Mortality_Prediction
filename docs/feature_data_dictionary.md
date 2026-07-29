@@ -25,9 +25,11 @@ Measurement summaries remain missing until training-fold median imputation. SD u
 is zero for one value. Incompatible or nonnumeric measurement rows do not become values. Drug and
 procedure zeros mean no qualifying record, not proof that care was absent.
 
-## Requested top-21 derived-feature override
+## Final 21 derived model columns
 
-The 300/104/103 candidate columns are ranked before imputation using outer-training visits only:
+The 300/104/103 candidate columns are ranked before imputation using outer-training visits only.
+Twenty-one means final matrix columns, not concepts; several summaries from one concept may be
+selected:
 
 - measurement mean/max/min/SD are available when nonmissing;
 - a measurement count occurs when positive;
@@ -35,12 +37,14 @@ The 300/104/103 candidate columns are ranked before imputation using outer-train
 - medication/procedure exposure, count, and numeric aggregates occur when positive;
 - time-to-first-drug is available when nonmissing.
 
-Rank is descending training-visit occurrence/availability, then ascending exact feature name.
+Rank is descending training-visit support proportion, then frozen candidate-construction order.
 Exactly 21 columns per domain are retained and applied unchanged to validation visits. The same
 fold/domain list is reused in every matrix containing that domain. The audit records rank,
-training occurrence, denominator, definition, and selection hash.
+source concept, summary type, training support count/proportion, score, explicit tie-break value,
+rule identifier/version, selected status, and selection hash for every candidate.
 
-This rule is unsupervised and contains no outcome, validation frequency, missingness, value, unit
-choice, or preprocessing information. It was not specified by the finalized PDF or historical
-analysis code; it is an explicit methodological override required by the current implementation
-request.
+This rule is unsupervised and contains no outcome, validation frequency, validation missingness,
+unit choice, or fitted preprocessing information. Completed replication scripts instead used
+mutual information and did not agree on 21 measurement columns or 50 medication concepts; the
+maintained manuscript describes frequency. Paper mode therefore fails closed pending
+reconciliation. See `recovered_method_provenance.md`.

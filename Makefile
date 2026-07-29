@@ -1,7 +1,7 @@
 PYTHON ?= python3
 export MPLCONFIGDIR ?= $(CURDIR)/.cache/matplotlib
 
-.PHONY: install lint test test-full synthetic-run verify paper-run-chorus paper-run-mimiciv verify-paper-chorus verify-paper-mimiciv clean
+.PHONY: install lint test test-full synthetic-run verify freeze-synthetic-expected paper-run-chorus paper-run-mimiciv verify-paper-chorus verify-paper-mimiciv clean
 
 install:
 	$(PYTHON) -m pip install --disable-pip-version-check -r requirements.lock
@@ -22,6 +22,9 @@ synthetic-run:
 
 verify:
 	$(PYTHON) -m clinical_domain_mortality verify --run-dir outputs/synthetic
+
+freeze-synthetic-expected:
+	$(PYTHON) -m clinical_domain_mortality freeze-synthetic-expected --run-dir outputs/synthetic --approve-update
 
 paper-run-chorus:
 	$(PYTHON) -m clinical_domain_mortality run --dataset chorus --config configs/chorus.paper.yaml

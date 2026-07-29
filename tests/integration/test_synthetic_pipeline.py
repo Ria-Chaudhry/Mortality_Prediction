@@ -20,6 +20,14 @@ def test_both_adapters_end_to_end(tmp_path):
     mimic = run_pipeline(
         PROJECT_ROOT / "configs" / "mimic.example.yaml", public, restricted
     )
+    repeated_chorus = run_pipeline(
+        PROJECT_ROOT / "configs" / "chorus.example.yaml", public, restricted
+    )
+    assert (
+        repeated_chorus.run_manifest["output_hashes"]
+        == chorus.run_manifest["output_hashes"]
+    )
+    assert repeated_chorus.run_manifest["run_id"] == chorus.run_manifest["run_id"]
     assert chorus.run_manifest["dataset"] == "chorus"
     assert mimic.run_manifest["dataset"] == "mimiciv"
     for dataset in ("chorus", "mimiciv"):
@@ -31,6 +39,11 @@ def test_both_adapters_end_to_end(tmp_path):
             ["cohort_visit_number", "matrix", "model"]
         ).any()
         assert predictions["probability"].between(0, 1).all()
+        shap_summary = pd.read_csv(public / dataset / "shap_summary.csv")
+        assert shap_summary["mean_absolute_shap"].ge(0).all()
+        assert not shap_summary.duplicated(
+            ["feature_matrix", "feature"]
+        ).any()
         verify_run(public / dataset)
     summary = pd.DataFrame(
         [
@@ -65,6 +78,7 @@ def test_both_adapters_end_to_end(tmp_path):
         "prespecified_paired_matrix_comparisons.csv",
         "attrition.csv",
         "fold_derived_feature_selections.csv",
+        "shap_summary.csv",
     ]
     for relative in major_classes:
         target = public / "chorus" / relative

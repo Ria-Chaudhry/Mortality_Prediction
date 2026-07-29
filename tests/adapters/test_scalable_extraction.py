@@ -9,7 +9,11 @@ from clinical_domain_mortality.adapters import base, chorus
 def test_chorus_adapter_never_issues_select_star():
     source = inspect.getsource(chorus.CHoRUSAdapter)
     assert "SELECT *" not in source.upper()
-    assert "eligible_visits" in source
+    assert "cdm_candidate_acute_cohort" in source
+    assert "EXISTS (SELECT 1 FROM" in source
+    assert "expanding=True" not in source
+    assert " IN :eligible" not in source
+    assert "predictor_end_datetime" in source
 
 
 def test_local_table_reader_requires_projection_and_chunking():

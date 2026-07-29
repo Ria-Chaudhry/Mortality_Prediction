@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pyarrow
 import scipy
+import shap
 import sklearn
 
 from .adapters import CHoRUSAdapter, MIMICIVAdapter, SourceAdapter
@@ -29,7 +30,11 @@ from .features import (
 )
 from .hashing import hash_file, hash_frame_schema, hash_frame_values, hash_object
 from .io import read_json, verify_hashes, write_csv, write_json
-from .modeling import fit_predict_fold, validate_oof_predictions
+from .modeling import (
+    fit_predict_fold,
+    fold_shap_aggregate,
+    validate_oof_predictions,
+)
 
 
 @dataclass
@@ -125,7 +130,7 @@ def run_pipeline(
                 "failure_type": "paper_cohort_count_mismatch",
                 "error": str(error),
                 "dataset": dataset,
-                "artifact_classification": "internal_restricted",
+                "artifact_classification": "restricted",
                 "config_hash": config["_meta"]["config_hash"],
                 "mapping_hash": standardized.mapping_hash,
             },
@@ -147,6 +152,15 @@ def run_pipeline(
             "landmark_hours": config["cohort"]["landmark_hours"],
             "predictor_window_hours": config["cohort"]["predictor_window_hours"],
             "outcome_horizon_days": config["cohort"]["outcome_horizon_days"],
+            "death_time_precision_counts": {
+                str(key): int(value)
+                for key, value in cohort_result.cohort[
+                    "death_time_precision"
+                ].value_counts(dropna=False).items()
+            },
+            "death_source_conflict_count": int(
+                cohort_result.cohort["death_source_conflict"].eq(True).sum()
+            ),
         },
         public_dir / "cohort_manifest.json",
     )
@@ -166,6 +180,12 @@ def run_pipeline(
     # Stages 4-5: semantics validation and first-24-hour event preparation.
     prepared = prepare_domain_events(standardized, cohort_result.cohort, config)
     write_csv(prepared.audit, public_dir / "event_linkage_audit.csv")
+    _enforce_expected_event_counts(
+        config,
+        prepared.audit,
+        public_dir,
+        standardized.mapping_hash,
+    )
     for domain, frame in prepared.events.items():
         frame.to_parquet(restricted_dir / f"prepared_{domain}.parquet", index=False)
     write_json(
@@ -182,6 +202,7 @@ def run_pipeline(
                 }
                 for domain, frame in prepared.events.items()
             },
+            "mimic_native_rules": config.get("source", {}).get("native", {}),
         },
         public_dir / "mapping_validation.json",
     )
@@ -335,13 +356,19 @@ def run_pipeline(
         else restricted_dir / "concept_selection_frequency.csv"
     )
     write_csv(selection_frequency, frequency_target)
-    if unit_audits:
-        write_csv(pd.concat(unit_audits, ignore_index=True), public_dir / "measurement_unit_audit.csv")
-    else:
-        write_csv(
-            pd.DataFrame(columns=["fold", "concept_key", "unit", "status", "count"]),
-            public_dir / "measurement_unit_audit.csv",
+    unit_audit = (
+        pd.concat(unit_audits, ignore_index=True)
+        if unit_audits
+        else pd.DataFrame(
+            columns=["fold", "concept_key", "unit", "status", "count"]
         )
+    )
+    unit_audit_target = (
+        public_dir / "measurement_unit_audit.csv"
+        if config.get("synthetic")
+        else restricted_dir / "measurement_unit_audit.csv"
+    )
+    write_csv(unit_audit, unit_audit_target)
     write_csv(pd.DataFrame(feature_manifest_rows), public_dir / "feature_manifest.csv")
     feature_dictionary_target = (
         public_dir / "feature_dictionary.csv"
@@ -437,6 +464,22 @@ def run_pipeline(
     evaluation_result = evaluate_predictions(predictions, cohort_result.cohort, config)
     for filename, table in evaluation_result.tables.items():
         write_csv(table, public_dir / filename)
+    if config["models"].get("shap", {}).get("enabled", False):
+        shap_folds, shap_summary = _build_shap_outputs(
+            config,
+            cohort_result,
+            fold_result.assignments,
+            restricted_dir,
+            evaluation_result.tables["best_model_by_matrix.csv"],
+            derived_selections,
+        )
+        shap_fold_target = (
+            public_dir / "shap_fold_aggregates.csv"
+            if config.get("synthetic")
+            else restricted_dir / "shap_fold_aggregates.csv"
+        )
+        write_csv(shap_folds, shap_fold_target)
+        write_csv(shap_summary, public_dir / "shap_summary.csv")
     write_json(
         {
             "dataset": dataset,
@@ -491,6 +534,12 @@ def run_pipeline(
     code_hash = _code_hash()
     output_hashes = _public_output_hashes(public_dir)
     write_json(output_hashes, public_dir / "manifests" / "output_manifest.json")
+    release = config.get("paper", {}).get("release_clearance", {})
+    classification = (
+        "public_synthetic"
+        if config.get("synthetic")
+        else str(release.get("classification", "restricted"))
+    )
     run_manifest = {
         "run_id": hash_object(
             {
@@ -519,11 +568,17 @@ def run_pipeline(
         "software_versions": software,
         "warnings": [],
         "failures": [],
-        "artifact_classification": (
-            "public_synthetic"
-            if config.get("synthetic")
-            else "release_candidate_aggregate_restricted"
-        ),
+        "artifact_classification": classification,
+        "privacy_gate": {
+            "classification": classification,
+            "ran": False,
+            "passed": False,
+            "release_approved": bool(release.get("approved")),
+            "small_cell_threshold": release.get(
+                "small_cell_threshold",
+                config.get("privacy", {}).get("small_cell_threshold"),
+            ),
+        },
         "paper_reproduction_status": (
             "not_applicable_synthetic"
             if config.get("synthetic")
@@ -544,16 +599,16 @@ def run_pipeline(
     write_json(run_manifest, public_dir / "run_manifest.json")
     scan_public_tree(
         public_dir,
-        classification=(
-            "public_synthetic"
-            if config.get("synthetic")
-            else "release_candidate_aggregate"
+        classification=classification,
+        small_cell_threshold=release.get(
+            "small_cell_threshold",
+            config.get("privacy", {}).get("small_cell_threshold"),
         ),
-        small_cell_threshold=config.get("privacy", {}).get("small_cell_threshold"),
-        release_approved=bool(
-            config.get("paper", {}).get("release_clearance", {}).get("approved")
-        ),
+        release_approved=bool(release.get("approved")),
     )
+    run_manifest["privacy_gate"]["ran"] = True
+    run_manifest["privacy_gate"]["passed"] = True
+    write_json(run_manifest, public_dir / "run_manifest.json")
     return RunResult(dataset, public_dir, restricted_dir, run_manifest)
 
 
@@ -764,13 +819,17 @@ def verify_paper_run(
     manifest = read_json(root / "run_manifest.json")
     dataset_manifest = read_json(root / "manifests" / "dataset_manifest.json")
     cohort_manifest = read_json(root / "cohort_manifest.json")
-    selection_manifest = read_json(root / "manifests" / "selection_manifest.json")
     mapping_manifest = read_json(root / "manifests" / "mapping_manifest.json")
+    input_manifest = read_json(root / "manifests" / "input_manifest.json")
     failures: list[str] = []
     if manifest.get("config_hash") != config["_meta"]["config_hash"]:
         failures.append("configuration hash differs from the executed run")
     if manifest.get("mapping_hash") != mapping_manifest.get("mapping_hash"):
         failures.append("mapping hash is internally inconsistent")
+    if input_manifest.get("source_release_or_snapshot") != config["source"].get(
+        "release_or_snapshot"
+    ):
+        failures.append("source release/snapshot differs from the paper configuration")
     expected = config["cohort"]["expected_counts"]
     observed = {
         "visits": cohort_manifest.get("visits"),
@@ -783,10 +842,10 @@ def verify_paper_run(
         failures.append("five frozen folds were not recorded")
     if dataset_manifest.get("matrices") != 8 or dataset_manifest.get("models") != 4:
         failures.append("eight matrices and four models were not recorded")
-    if selection_manifest.get("retained_per_domain_per_fold") != 21:
-        failures.append("top-21 derived-feature selection is not recorded")
-    if not selection_manifest.get("training_folds_only"):
-        failures.append("training-fold-only selection is not recorded")
+    try:
+        _verify_selection_artifacts(config, root)
+    except IntegrityError as error:
+        failures.append(str(error))
     required = {
         "fold_metrics.csv",
         "pooled_oof_metrics.csv",
@@ -796,15 +855,42 @@ def verify_paper_run(
         "selected_models_top_10_percent_risk_analysis.csv",
         "selected_models_decision_curve_coordinates.csv",
         "prespecified_paired_matrix_comparisons.csv",
+        "shap_summary.csv",
     }
     missing = sorted(name for name in required if not (root / name).is_file())
     if missing:
         failures.append(f"required aggregate outputs are missing: {missing}")
+    event_comparison_path = root / "expected_vs_observed_event_counts.csv"
+    if not event_comparison_path.is_file():
+        failures.append("expected-versus-observed event-count diagnostics are missing")
+    else:
+        event_comparison = pd.read_csv(event_comparison_path)
+        if "matches" not in event_comparison or not _strict_boolean(
+            event_comparison["matches"], "event-count matches"
+        ).all():
+            failures.append("configured paper event counts do not match observed counts")
     paper = config["paper"]
     if not paper.get("manuscript_reconciled"):
         failures.append("manuscript reconciliation has not been approved")
     if not paper.get("release_clearance", {}).get("approved"):
         failures.append("aggregate release clearance has not been approved")
+    privacy_gate = manifest.get("privacy_gate", {})
+    if (
+        privacy_gate.get("classification") != "public_clinical"
+        or not privacy_gate.get("ran")
+        or not privacy_gate.get("passed")
+    ):
+        failures.append("the public_clinical privacy gate did not run and pass")
+    else:
+        try:
+            scan_public_tree(
+                root,
+                classification="public_clinical",
+                small_cell_threshold=privacy_gate.get("small_cell_threshold"),
+                release_approved=bool(privacy_gate.get("release_approved")),
+            )
+        except IntegrityError as error:
+            failures.append(str(error))
     if failures:
         raise IntegrityError("Paper verification failed closed: " + "; ".join(failures))
     verify_run(root)
@@ -816,6 +902,255 @@ def verify_paper_run(
         "manuscript_reconciled": True,
         "release_cleared": True,
     }
+
+
+def _enforce_expected_event_counts(
+    config: dict[str, Any],
+    audit: pd.DataFrame,
+    public_dir: Path,
+    mapping_hash: str,
+) -> None:
+    """Persist observed event diagnostics before a configured mismatch fails."""
+    expected = config.get("paper", {}).get("expected_event_counts")
+    if not config.get("paper_run") or not isinstance(expected, dict):
+        return
+    rows: list[dict[str, Any]] = []
+    for domain, expected_value in sorted(expected.items()):
+        status = "qualifying"
+        domain_name = domain
+        if "." in domain:
+            domain_name, status = domain.split(".", 1)
+        observed_rows = audit.loc[
+            audit["domain"].eq(domain_name) & audit["status"].eq(status),
+            "count",
+        ]
+        observed = int(observed_rows.sum()) if not observed_rows.empty else 0
+        rows.append(
+            {
+                "domain": domain_name,
+                "attrition_stage": status,
+                "expected": int(expected_value),
+                "observed": observed,
+                "matches": observed == int(expected_value),
+            }
+        )
+    comparison = pd.DataFrame(rows)
+    write_csv(comparison, public_dir / "expected_vs_observed_event_counts.csv")
+    if not comparison["matches"].all():
+        write_json(
+            {
+                "status": "failed",
+                "failure_type": "paper_event_count_mismatch",
+                "dataset": config["dataset"],
+                "artifact_classification": "restricted",
+                "config_hash": config["_meta"]["config_hash"],
+                "mapping_hash": mapping_hash,
+            },
+            public_dir / "failed_run_manifest.json",
+        )
+        raise IntegrityError(
+            "Paper event-count mismatch; persisted expected-versus-observed diagnostics"
+        )
+
+
+def _build_shap_outputs(
+    config: dict[str, Any],
+    cohort_result: Any,
+    assignments: pd.DataFrame,
+    restricted_dir: Path,
+    selected_models: pd.DataFrame,
+    derived_selections: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Refit selected models and aggregate held-out permutation SHAP by fold."""
+    assignment_index = assignments.set_index("cohort_visit_number")
+    outcome = cohort_result.cohort.set_index("cohort_visit_number")["outcome"]
+    fold_parts: list[pd.DataFrame] = []
+    selected = selected_models.set_index("matrix")["model"].to_dict()
+    for fold in range(int(config["folds"]["count"])):
+        fold_provenance = (
+            derived_selections.loc[
+                derived_selections["fold"].eq(fold)
+                & derived_selections["selected"],
+                [
+                    "candidate_feature_name",
+                    "domain",
+                    "source_concept",
+                    "summary_type",
+                ],
+            ]
+            .drop_duplicates("candidate_feature_name")
+            .set_index("candidate_feature_name")
+        )
+        domains = {
+            domain: pd.read_parquet(
+                restricted_dir
+                / "fold_features"
+                / f"fold_{fold}"
+                / f"{domain}.parquet"
+            )
+            for domain in ("measurements", "medications", "procedures")
+        }
+        for matrix_name, components in config["matrices"].items():
+            matrix = cohort_result.baseline.copy()
+            for component in components:
+                matrix = matrix.merge(
+                    domains[component],
+                    on="cohort_visit_number",
+                    how="left",
+                    validate="one_to_one",
+                    sort=False,
+                )
+            matrix = matrix.set_index("cohort_visit_number", verify_integrity=True)
+            training = sorted(
+                assignment_index.index[assignment_index["fold"].ne(fold)].astype(int)
+            )
+            validation = assignment_index.index[
+                assignment_index["fold"].eq(fold)
+            ].astype(int).tolist()
+            shap_part = fold_shap_aggregate(
+                matrix.loc[training],
+                outcome.loc[training],
+                matrix.loc[validation],
+                dataset=str(config["dataset"]),
+                fold=fold,
+                matrix=matrix_name,
+                model=str(selected[matrix_name]),
+                config=config,
+            )
+            mapped = shap_part["feature"].map(fold_provenance["domain"])
+            clinical = mapped.notna()
+            shap_part.loc[clinical, "clinical_domain"] = mapped.loc[clinical]
+            shap_part.loc[clinical, "source_concept"] = shap_part.loc[
+                clinical, "feature"
+            ].map(fold_provenance["source_concept"])
+            shap_part.loc[clinical, "summary_type"] = shap_part.loc[
+                clinical, "feature"
+            ].map(fold_provenance["summary_type"])
+            fold_parts.append(shap_part)
+    fold_table = pd.concat(fold_parts, ignore_index=True)
+    summary = (
+        fold_table.groupby(
+            [
+                "dataset",
+                "feature_matrix",
+                "model",
+                "feature",
+                "clinical_domain",
+                "source_concept",
+                "summary_type",
+                "explainer",
+            ],
+            sort=True,
+            as_index=False,
+        )
+        .agg(
+            mean_absolute_shap=("mean_absolute_shap", "mean"),
+            folds=("outer_fold", "nunique"),
+        )
+        .sort_values(
+            ["feature_matrix", "mean_absolute_shap", "feature"],
+            ascending=[True, False, True],
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
+    summary["rank"] = (
+        summary.groupby("feature_matrix", sort=False).cumcount() + 1
+    )
+    return fold_table, summary
+
+
+def _verify_selection_artifacts(config: dict[str, Any], root: Path) -> None:
+    """Validate the actual restricted fold tables, not a manifest assertion."""
+    restricted_root = root.parent if root.name == "release_candidate_aggregate" else root
+    concept_path = restricted_root / "fold_concept_selections.csv"
+    derived_path = restricted_root / "fold_derived_feature_selections.csv"
+    if not concept_path.is_file() or not derived_path.is_file():
+        raise IntegrityError("restricted concept or derived-feature selection table is missing")
+    concepts = pd.read_csv(concept_path)
+    derived = pd.read_csv(derived_path)
+    required_derived = {
+        "fold",
+        "domain",
+        "candidate_feature_name",
+        "source_concept",
+        "summary_type",
+        "training_support_count",
+        "training_support_proportion",
+        "selection_score",
+        "tie_break_value",
+        "rank",
+        "selected",
+        "selection_rule_identifier",
+        "selection_rule_version",
+    }
+    missing = required_derived - set(derived)
+    if missing:
+        raise IntegrityError(
+            f"derived-feature selection table is missing columns: {sorted(missing)}"
+        )
+    domains = ("measurements", "medications", "procedures")
+    for fold in range(int(config["folds"]["count"])):
+        for domain in domains:
+            concept_group = concepts.loc[
+                concepts["fold"].eq(fold) & concepts["domain"].eq(domain)
+            ]
+            if len(concept_group) != 50 or not _strict_boolean(
+                concept_group["selected"], "concept selected"
+            ).all():
+                raise IntegrityError(
+                    f"{domain} fold {fold} does not contain exactly 50 selected concepts"
+                )
+            group = derived.loc[
+                derived["fold"].eq(fold) & derived["domain"].eq(domain)
+            ].sort_values("rank", kind="stable")
+            expected_candidates = int(
+                config["features"][domain]["constructed_count"]
+            )
+            if len(group) != expected_candidates:
+                raise IntegrityError(
+                    f"{domain} fold {fold} has {len(group)} candidate rows; "
+                    f"expected {expected_candidates}"
+                )
+            selected = group.loc[
+                _strict_boolean(group["selected"], "derived-feature selected")
+            ]
+            if len(selected) != 21:
+                raise IntegrityError(
+                    f"{domain} fold {fold} does not select exactly 21 derived columns"
+                )
+            if group["rank"].tolist() != list(range(1, expected_candidates + 1)):
+                raise IntegrityError(f"{domain} fold {fold} candidate ranks are invalid")
+            feature_path = (
+                restricted_root
+                / "fold_features"
+                / f"fold_{fold}"
+                / f"{domain}.parquet"
+            )
+            if not feature_path.is_file():
+                raise IntegrityError(f"restricted fold feature table is missing: {feature_path.name}")
+            actual_columns = [
+                name
+                for name in pd.read_parquet(feature_path).columns
+                if name != "cohort_visit_number"
+            ]
+            if actual_columns != selected["candidate_feature_name"].tolist():
+                raise IntegrityError(
+                    f"{domain} fold {fold} feature table differs from its selection rows"
+                )
+
+
+def _strict_boolean(values: pd.Series, label: str) -> pd.Series:
+    """Parse manifest booleans without treating arbitrary strings as true."""
+    if pd.api.types.is_bool_dtype(values.dtype):
+        return values.astype(bool)
+    normalized = values.astype("string").str.strip().str.casefold()
+    unknown = normalized.notna() & ~normalized.isin({"true", "false", "1", "0"})
+    if unknown.any():
+        raise IntegrityError(f"{label} contains invalid boolean values")
+    return normalized.map({"true": True, "1": True, "false": False, "0": False}).fillna(
+        False
+    )
 
 
 def _verify_dataset_invariants(dataset_dir: Path, manifest: dict[str, Any]) -> None:
@@ -890,6 +1225,7 @@ def _software_versions() -> dict[str, str]:
         "lightgbm": lightgbm.__version__,
         "scipy": scipy.__version__,
         "pyarrow": pyarrow.__version__,
+        "shap": shap.__version__,
     }
 
 

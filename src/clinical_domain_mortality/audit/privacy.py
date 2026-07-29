@@ -41,7 +41,6 @@ PUBLIC_AGGREGATE_ALLOWLIST = {
     "fold_metrics.csv",
     "fold_summary.csv",
     "matrix_manifest.csv",
-    "measurement_unit_audit.csv",
     "model_selection_results.csv",
     "pooled_oof_metrics.csv",
     "prespecified_paired_matrix_comparisons.csv",
@@ -54,6 +53,7 @@ PUBLIC_AGGREGATE_ALLOWLIST = {
     "selected_models_roc_coordinates.csv",
     "selected_models_sensitivity_at_90_specificity.csv",
     "selected_models_top_10_percent_risk_analysis.csv",
+    "shap_summary.csv",
 }
 
 
@@ -66,6 +66,7 @@ def scan_public_tree(
 ) -> None:
     """Scan public/release-candidate artifacts without logging cell values."""
     if classification not in {
+        "restricted",
         "public_synthetic",
         "release_candidate_aggregate",
         "public_clinical",
@@ -97,13 +98,16 @@ def scan_public_tree(
         except (OSError, pd.errors.ParserError, UnicodeDecodeError):
             findings.append(f"{relative}: unreadable CSV")
             continue
-        disallowed = [
-            str(column)
-            for column in frame
-            if DISALLOWED_PUBLIC_COLUMNS.search(str(column))
-        ]
-        if disallowed:
-            findings.append(f"{relative}: disallowed public columns {sorted(disallowed)}")
+        if classification != "restricted":
+            disallowed = [
+                str(column)
+                for column in frame
+                if DISALLOWED_PUBLIC_COLUMNS.search(str(column))
+            ]
+            if disallowed:
+                findings.append(
+                    f"{relative}: disallowed public columns {sorted(disallowed)}"
+                )
         if classification == "public_clinical":
             if path.name not in PUBLIC_AGGREGATE_ALLOWLIST:
                 findings.append(f"{relative}: file is absent from public schema allowlist")

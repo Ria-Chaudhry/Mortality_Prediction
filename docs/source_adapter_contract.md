@@ -7,9 +7,9 @@ analytical modules accept only these standardized frames.
 |---|---|
 | `patients` | `patient_id`, `birth_datetime`, `sex`, `race`, `ethnicity`; optional/common audit fields `age_anchor`, `age_anchor_year`, `anchor_year_group` |
 | `encounters` | `visit_id`, `patient_id`, `start_datetime`, `end_datetime`, `visit_type`, `elective`, `followup_end_datetime`, `race_at_admission`, `ethnicity_at_admission` |
-| `deaths` | `patient_id`, `death_datetime` |
+| `deaths` | `patient_id`, exact `death_datetime` when available, date-only `death_date`, `death_time_precision`, `death_source`, `death_source_conflict` |
 | `diagnoses` | `diagnosis_id`, `visit_id`, `patient_id`, `diagnosis_datetime`, `code`, `icd_version`, `source_table` |
-| domain event | `event_id`, `source_visit_id`, `bridge_key`, `patient_id`, `event_datetime`, `concept_key`, `concept_name`, `value`, `unit`, `source_table`, `semantics` |
+| domain event | `event_id`, `source_visit_id`, `bridge_key`, `patient_id`, exact `event_datetime` or date-only `event_date`, `event_time_precision`, `concept_key`, `concept_name`, `value`, `unit`, `source_table`, `semantics` |
 | `bridge` | `bridge_key`, `visit_id` |
 | `metadata` | `domain`, `concept_key`, `concept_name`, `source_table`, `semantics`, `unit` |
 
@@ -22,8 +22,10 @@ eligible interval; ambiguity hard-fails. Unmatched rows are audited and excluded
 
 The configurable OMOP-compatible adapter supports person, visit, death, condition, measurement,
 drug exposure, procedure occurrence, observation, and approved bridge structures. Physical
-tables and every source column come from configuration. SQL uses explicit projections and
-eligible-cohort/time predicates. Database URL and schema values come from environment variables.
+tables and every source column come from configuration. SQL uses explicit projections, a
+server-side temporary acute-cohort relation populated in bounded batches, and correlated
+cohort/time predicates. It does not expand one SQL parameter per cohort member. Database URL and
+schema values come from environment variables.
 
 Medication and procedure semantics are preserved per row or configured source. Drug exposure is
 not silently called administration; a claim, code, or order is not silently called performed
@@ -49,9 +51,14 @@ All required columns are validated before analysis. The adapter does not require
 
 Age follows the MIMIC anchor method. Race, ethnicity availability/derivation, and admission types
 require configured harmonization.
-The death/follow-up rule is explicit. Medication concept field and source semantics are explicit.
-Measurement concepts are namespaced as `labevents:itemid` or `chartevents:itemid`; procedures are
-namespaced by table, ICD version, and code. Stable internal keys hash native key material and add
+The death/follow-up rule is explicit. Precise `admissions.deathtime` takes priority;
+`patients.dod` is retained as a date-only fallback and never converted to midnight. Source
+conflicts are audited, and a date-only landmark-day death is conservatively excluded without
+inventing a time. Medication concept field and source semantics are explicit.
+Measurement concepts are namespaced as `labevents:itemid` or `chartevents:itemid`; procedures use
+the recovered `icd{version}:{normalized code}` namespace. `procedures_icd.chartdate` stays date-only and uses
+the recovered `calendar_dates_spanned_inclusive_v1` rule: admission through predictor-end
+calendar dates, inclusive. It is not described as an exact timestamp window. Stable internal keys hash native key material and add
 a duplicate occurrence index, preserving duplicate-row multiplicity.
 
 Parquet uses column and predicate pushdown. CSV/CSV.GZ is read with `usecols` in bounded chunks,

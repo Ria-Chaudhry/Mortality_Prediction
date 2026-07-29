@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pandas as pd
 import pytest
 import yaml
 
 from clinical_domain_mortality.config import PROJECT_ROOT, read_yaml
-from clinical_domain_mortality.errors import CountMismatchError
-from clinical_domain_mortality.pipeline import run_pipeline
+from clinical_domain_mortality.errors import CountMismatchError, IntegrityError
+from clinical_domain_mortality.pipeline import (
+    _enforce_expected_event_counts,
+    run_pipeline,
+)
 
 
 def test_count_failure_preserves_attrition_and_comparison(tmp_path):
@@ -32,3 +36,25 @@ def test_count_failure_preserves_attrition_and_comparison(tmp_path):
     assert (diagnostic / "attrition.csv").is_file()
     assert (diagnostic / "expected_vs_observed_counts.csv").is_file()
     assert (diagnostic / "failed_run_manifest.json").is_file()
+
+
+def test_event_count_failure_preserves_observed_comparison(tmp_path, chorus_config):
+    config = deepcopy(chorus_config)
+    config["paper_run"] = True
+    config["paper"] = {
+        "expected_event_counts": {
+            "measurements": 999,
+            "medications.qualifying": 2,
+        }
+    }
+    audit = pd.DataFrame(
+        [
+            {"domain": "measurements", "status": "qualifying", "count": 4},
+            {"domain": "medications", "status": "qualifying", "count": 2},
+        ]
+    )
+    with pytest.raises(IntegrityError, match="event-count mismatch"):
+        _enforce_expected_event_counts(config, audit, tmp_path, "mapping-hash")
+    comparison = pd.read_csv(tmp_path / "expected_vs_observed_event_counts.csv")
+    assert comparison.set_index("domain").loc["measurements", "observed"] == 4
+    assert (tmp_path / "failed_run_manifest.json").is_file()

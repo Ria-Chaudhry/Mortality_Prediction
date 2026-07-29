@@ -97,23 +97,49 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
         frame = frame.loc[~frame["short_visit"]].copy()
     _record(attrition, "short-visit policy", frame)
 
-    early_death = frame["death_datetime"].notna() & (
-        frame["death_datetime"] <= frame["landmark_datetime"]
+    precise_death = frame["death_time_precision"].eq("datetime")
+    date_only_death = frame["death_time_precision"].eq("date")
+    early_death = (
+        precise_death
+        & frame["death_datetime"].notna()
+        & (frame["death_datetime"] <= frame["landmark_datetime"])
+    ) | (
+        date_only_death
+        & frame["death_date"].notna()
+        & (frame["death_date"] <= frame["landmark_datetime"].dt.normalize())
     )
     frame = frame.loc[~early_death].copy()
     _record(attrition, "alive after 24-hour landmark", frame)
 
     frame["outcome"] = (
-        frame["death_datetime"].notna()
-        & (frame["death_datetime"] > frame["landmark_datetime"])
-        & (frame["death_datetime"] <= frame["outcome_horizon_datetime"])
-    ).astype("int8")
-    verified = (
-        (frame["outcome"] == 1)
+        (
+            frame["death_time_precision"].eq("datetime")
+            & frame["death_datetime"].notna()
+            & (frame["death_datetime"] > frame["landmark_datetime"])
+            & (frame["death_datetime"] <= frame["outcome_horizon_datetime"])
+        )
         | (
-            frame["death_datetime"].notna()
+            frame["death_time_precision"].eq("date")
+            & frame["death_date"].notna()
+            & (frame["death_date"] > frame["landmark_datetime"].dt.normalize())
+            & (frame["death_date"] <= frame["outcome_horizon_datetime"].dt.normalize())
+        )
+    ).astype("int8")
+    death_after_horizon = (
+        (
+            frame["death_time_precision"].eq("datetime")
+            & frame["death_datetime"].notna()
             & (frame["death_datetime"] > frame["outcome_horizon_datetime"])
         )
+        | (
+            frame["death_time_precision"].eq("date")
+            & frame["death_date"].notna()
+            & (frame["death_date"] > frame["outcome_horizon_datetime"].dt.normalize())
+        )
+    )
+    verified = (
+        (frame["outcome"] == 1)
+        | death_after_horizon
         | (
             frame["followup_end_datetime"].notna()
             & (frame["followup_end_datetime"] >= frame["outcome_horizon_datetime"])
@@ -192,6 +218,11 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
             "start_datetime",
             "landmark_datetime",
             "predictor_end_datetime",
+            "death_datetime",
+            "death_date",
+            "death_time_precision",
+            "death_source",
+            "death_source_conflict",
             "outcome",
         ],
     )

@@ -98,7 +98,14 @@ def test_expected_domain_feature_counts(
     )
     assert feature.full_feature_count == constructed
     assert len(feature.feature_names) == 21
-    assert len(feature.selection_audit) == 21
+    assert len(feature.selection_audit) == constructed
+    selected = feature.selection_audit.loc[feature.selection_audit["selected"]]
+    assert len(selected) == 21
+    assert selected["candidate_feature_name"].tolist() == feature.feature_names
+    assert selected["source_concept"].nunique() < 21
+    assert set(feature.selection_audit["selection_rule_identifier"]) == {
+        "training_support_prevalence_v1"
+    }
     assert len(feature.frame) == len(cohort_result.cohort)
     assert feature.frame["cohort_visit_number"].tolist() == cohort_result.cohort[
         "cohort_visit_number"
@@ -224,8 +231,8 @@ def test_validation_changes_cannot_change_top50_or_top21(
     ].tolist()
     assert original_features.feature_names == changed_features.feature_names
     assert (
-        original_features.selection_audit["training_visit_occurrence"].tolist()
-        == changed_features.selection_audit["training_visit_occurrence"].tolist()
+        original_features.selection_audit["training_support_count"].tolist()
+        == changed_features.selection_audit["training_support_count"].tolist()
     )
     assert original_features.feature_names == outcome_changed_features.feature_names
 
@@ -247,13 +254,15 @@ def test_domain_feature_definitions_are_reused_across_matrices(
             chorus_config,
         )
     for domain in domains:
-        expected = set(domains[domain].feature_names)
+        expected = domains[domain].feature_names
         for matrix_name, components in chorus_config["matrices"].items():
             if domain in components:
                 matrix = assemble_matrix(
                     cohort_result.baseline, domains, matrix_name, chorus_config
                 )
-                assert expected.issubset(matrix.columns)
+                actual = [column for column in matrix.columns if column in expected]
+                assert actual == expected
+                assert len(actual) == 21
 
 
 def _event(visit, concept, unit="u"):

@@ -64,7 +64,16 @@ class CHoRUSAdapter(LocalFileAdapter):
         return result
 
     def _load_sql_tables(self) -> dict[str, pd.DataFrame]:
-        from sqlalchemy import bindparam, create_engine, inspect, text
+        from sqlalchemy import (
+            Column,
+            DateTime,
+            MetaData,
+            String,
+            Table,
+            create_engine,
+            inspect,
+            text,
+        )
 
         connection = require_environment_reference(self.source["database_url_env"])
         schema_name = None
@@ -113,12 +122,45 @@ class CHoRUSAdapter(LocalFileAdapter):
             encounter_columns = self.source["columns"]["encounters"]
             patient_column = encounter_columns["patient_id"]
             visit_column = encounter_columns["visit_id"]
-            candidate_patients = set(
-                raw["encounters"].loc[
-                    raw["encounters"][visit_column].isin(candidate_visits),
+            candidate_frame = raw["encounters"].loc[
+                raw["encounters"][visit_column].isin(candidate_visits),
+                [
+                    visit_column,
                     patient_column,
-                ]
+                    encounter_columns["start_datetime"],
+                ],
+            ].copy()
+            candidate_frame.columns = [
+                "visit_id",
+                "patient_id",
+                "start_datetime",
+            ]
+            candidate_frame["visit_id"] = candidate_frame["visit_id"].astype(str)
+            candidate_frame["patient_id"] = candidate_frame["patient_id"].astype(str)
+            candidate_frame["start_datetime"] = pd.to_datetime(
+                candidate_frame["start_datetime"], errors="raise"
             )
+            candidate_frame["predictor_end_datetime"] = candidate_frame[
+                "start_datetime"
+            ] + pd.to_timedelta(
+                float(self.config["cohort"]["predictor_window_hours"]), unit="h"
+            )
+            staging_name = "cdm_candidate_acute_cohort"
+            metadata = MetaData()
+            staging = Table(
+                staging_name,
+                metadata,
+                Column("visit_id", String, primary_key=True),
+                Column("patient_id", String, nullable=False, index=True),
+                Column("start_datetime", DateTime, nullable=False),
+                Column("predictor_end_datetime", DateTime, nullable=False),
+                prefixes=["TEMPORARY"],
+            )
+            staging.create(handle)
+            records = candidate_frame.to_dict(orient="records")
+            chunk_size = int(self.source.get("staging_insert_chunk_size", 1000))
+            for offset in range(0, len(records), chunk_size):
+                handle.execute(staging.insert(), records[offset : offset + chunk_size])
             for standard in (
                 "diagnoses",
                 "measurements",
@@ -133,79 +175,58 @@ class CHoRUSAdapter(LocalFileAdapter):
                 if not mapping:
                     raw[standard] = pd.DataFrame()
                     continue
-                filters = []
-                parameters: dict[str, object] = {}
-                statement = text(
-                    f"SELECT {select_columns(standard)} FROM {qualified(standard)}"
-                )
+                filters: list[str] = []
                 source_visit = mapping.get(
                     "visit_id" if standard in {"diagnoses", "bridge"} else "source_visit_id"
                 )
                 source_patient = mapping.get("patient_id")
-                if standard == "diagnoses" and source_patient:
-                    filters.append(f"{source_patient} IN :eligible_patients")
-                    parameters["eligible_patients"] = sorted(candidate_patients, key=str)
-                    statement = statement.bindparams(
-                        bindparam("eligible_patients", expanding=True)
-                    )
-                elif source_visit and source_patient:
-                    filters.append(
-                        f"({source_visit} IN :eligible_visits OR "
-                        f"{source_patient} IN :eligible_patients)"
-                    )
-                    parameters["eligible_visits"] = sorted(candidate_visits, key=str)
-                    parameters["eligible_patients"] = sorted(candidate_patients, key=str)
-                    statement = statement.bindparams(
-                        bindparam("eligible_visits", expanding=True),
-                        bindparam("eligible_patients", expanding=True),
-                    )
-                elif source_visit:
-                    filters.append(f"{source_visit} IN :eligible_visits")
-                    parameters["eligible_visits"] = sorted(candidate_visits, key=str)
-                    statement = statement.bindparams(
-                        bindparam("eligible_visits", expanding=True)
-                    )
-                elif source_patient:
-                    filters.append(f"{source_patient} IN :eligible_patients")
-                    parameters["eligible_patients"] = sorted(candidate_patients, key=str)
-                    statement = statement.bindparams(
-                        bindparam("eligible_patients", expanding=True)
-                    )
                 event_column = mapping.get(
                     "diagnosis_datetime"
                     if standard == "diagnoses"
                     else "event_datetime"
                 )
-                if event_column:
-                    starts = pd.to_datetime(
-                        raw["encounters"].loc[
-                            raw["encounters"][visit_column].isin(candidate_visits),
-                            encounter_columns["start_datetime"],
-                        ]
-                    )
-                    filters.extend(
-                        [f"{event_column} >= :minimum_event_time", f"{event_column} < :maximum_event_time"]
-                    )
-                    parameters["minimum_event_time"] = starts.min() - pd.Timedelta(
-                        days=int(self.config["cohort"]["prior_lookback_days"])
-                    )
-                    parameters["maximum_event_time"] = starts.max() + pd.Timedelta(
-                        hours=float(self.config["cohort"]["predictor_window_hours"])
-                    )
-                if filters:
-                    statement = text(
-                        f"SELECT {select_columns(standard)} FROM {qualified(standard)} "
-                        f"WHERE {' AND '.join(filters)}"
-                    )
-                    if "eligible_visits" in parameters:
-                        statement = statement.bindparams(
-                            bindparam("eligible_visits", expanding=True)
+                visit_match = (
+                    f"CAST(src.{source_visit} AS VARCHAR) = eligible.visit_id"
+                    if source_visit
+                    else "FALSE"
+                )
+                patient_match = (
+                    f"CAST(src.{source_patient} AS VARCHAR) = eligible.patient_id"
+                    if source_patient
+                    else "FALSE"
+                )
+                if standard == "diagnoses":
+                    if not source_patient or not event_column:
+                        raise ConfigurationError(
+                            "CHoRUS SQL diagnoses require patient and diagnosis-time mappings"
                         )
-                    if "eligible_patients" in parameters:
-                        statement = statement.bindparams(
-                            bindparam("eligible_patients", expanding=True)
-                        )
-                raw[standard] = pd.read_sql_query(statement, handle, params=parameters)
+                    lookback = int(self.config["cohort"]["prior_lookback_days"])
+                    relation_filter = (
+                        f"{patient_match} AND "
+                        f"src.{event_column} >= eligible.start_datetime "
+                        f"- INTERVAL '{lookback} days' AND "
+                        f"src.{event_column} < eligible.start_datetime"
+                    )
+                elif standard == "bridge":
+                    relation_filter = visit_match
+                elif event_column:
+                    relation_filter = (
+                        f"({visit_match} OR {patient_match}) AND "
+                        f"src.{event_column} >= eligible.start_datetime AND "
+                        f"src.{event_column} < eligible.predictor_end_datetime"
+                    )
+                else:
+                    relation_filter = f"({visit_match} OR {patient_match})"
+                filters.append(
+                    "EXISTS (SELECT 1 FROM "
+                    f"{staging_name} AS eligible WHERE {relation_filter})"
+                )
+                statement = text(
+                    f"SELECT {', '.join(f'src.{name}' for name in self._source_columns(standard))} "
+                    f"FROM {qualified(standard)} AS src "
+                    f"WHERE {' AND '.join(filters)}"
+                )
+                raw[standard] = pd.read_sql_query(statement, handle)
         self._input_hashes["sql_extraction_signature"] = self._sql_signature(raw)
         return raw
 

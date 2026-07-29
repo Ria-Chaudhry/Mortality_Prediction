@@ -60,9 +60,17 @@ def build_fold_domain_features(
             f"expected {constructed}"
         )
     audit = _select_derived_features(
-        frame, training_visits, selection.domain, selection.fold, config
+        frame,
+        training_visits,
+        selection.domain,
+        selection.fold,
+        config,
+        {
+            feature_safe_key(key): str(key)
+            for key in selected_keys
+        },
     )
-    names = audit["feature_name"].tolist()
+    names = audit.loc[audit["selected"], "candidate_feature_name"].tolist()
     frame = frame[["cohort_visit_number", *names]].copy()
     expected = int(config["features"][selection.domain]["expected_count"])
     if len(names) != expected:
@@ -93,6 +101,7 @@ def _select_derived_features(
     domain: str,
     fold: int,
     config: dict[str, Any],
+    concept_lookup: dict[str, str],
 ) -> pd.DataFrame:
     """Rank raw derived columns using training-fold occurrence/availability only.
 
@@ -105,8 +114,22 @@ def _select_derived_features(
     training = frame.loc[frame["cohort_visit_number"].isin(training_visits)].copy()
     if set(training["cohort_visit_number"]) != set(training_visits):
         raise IntegrityError(f"{domain} derived-feature ranking lost training visits")
+    rule = str(
+        config["features"].get(
+            "derived_feature_selection_rule",
+            "training_support_prevalence_v1",
+        )
+    )
+    if rule != "training_support_prevalence_v1":
+        raise IntegrityError(
+            "This construction path supports only the unsupervised, pre-imputation "
+            f"training-support rule; observed {rule!r}"
+        )
+    candidate_names = [
+        column for column in frame if column != "cohort_visit_number"
+    ]
     rows: list[dict[str, Any]] = []
-    for name in (column for column in frame if column != "cohort_visit_number"):
+    for candidate_order, name in enumerate(candidate_names, start=1):
         values = training[name]
         if name.endswith("__missing"):
             occurred = values.eq(0)
@@ -123,18 +146,30 @@ def _select_derived_features(
         else:
             occurred = pd.to_numeric(values, errors="coerce").fillna(0).gt(0)
             definition = "positive_occurrence"
+        source_concept, summary_type = _feature_provenance(
+            name, domain, concept_lookup
+        )
+        support_count = int(occurred.sum())
+        support_proportion = support_count / len(training)
         rows.append(
             {
                 "fold": fold,
                 "domain": domain,
-                "feature_name": name,
-                "training_visit_occurrence": int(occurred.sum()),
+                "candidate_feature_name": name,
+                "source_concept": source_concept,
+                "summary_type": summary_type,
+                "training_support_count": support_count,
+                "training_support_proportion": support_proportion,
+                "selection_score": support_proportion,
+                "tie_break_value": candidate_order,
                 "training_visit_count": len(training),
-                "occurrence_definition": definition,
+                "support_definition": definition,
+                "selection_rule_identifier": rule,
+                "selection_rule_version": "1",
             }
         )
     ranking = pd.DataFrame(rows).sort_values(
-        ["training_visit_occurrence", "feature_name"],
+        ["selection_score", "tie_break_value"],
         ascending=[False, True],
         kind="stable",
     ).reset_index(drop=True)
@@ -144,32 +179,73 @@ def _select_derived_features(
         raise IntegrityError(
             f"{domain} fold {fold} has only {len(ranking)} derived features; {keep} required"
         )
-    selected = ranking.iloc[:keep].copy()
-    selected["selected"] = True
-    selected["derived_selection_hash"] = hash_frame(
-        selected,
+    ranking["selected"] = ranking["rank"].le(keep)
+    selection_hash = hash_frame(
+        ranking,
         [
             "fold",
             "domain",
             "rank",
-            "feature_name",
-            "training_visit_occurrence",
-            "occurrence_definition",
+            "candidate_feature_name",
+            "source_concept",
+            "summary_type",
+            "training_support_count",
+            "training_support_proportion",
+            "selection_score",
+            "tie_break_value",
+            "support_definition",
+            "selected",
+            "selection_rule_identifier",
+            "selection_rule_version",
         ],
     )
-    return selected[
+    ranking["derived_selection_hash"] = selection_hash
+    return ranking[
         [
             "fold",
             "domain",
             "rank",
-            "feature_name",
-            "training_visit_occurrence",
+            "candidate_feature_name",
+            "source_concept",
+            "summary_type",
+            "training_support_count",
+            "training_support_proportion",
+            "selection_score",
+            "tie_break_value",
             "training_visit_count",
-            "occurrence_definition",
+            "support_definition",
             "selected",
+            "selection_rule_identifier",
+            "selection_rule_version",
             "derived_selection_hash",
         ]
     ]
+
+
+def _feature_provenance(
+    feature_name: str,
+    domain: str,
+    concept_lookup: dict[str, str],
+) -> tuple[str, str]:
+    """Recover source-concept and summary labels from deterministic column names."""
+    prefix = {
+        "measurements": "measurement__",
+        "medications": "medication__",
+        "procedures": "procedure__",
+    }[domain]
+    if feature_name.startswith(prefix):
+        remainder = feature_name.removeprefix(prefix)
+        source_concept, separator, summary = remainder.rpartition("__")
+        if not separator:
+            raise IntegrityError(
+                f"Cannot parse {domain} candidate feature provenance: {feature_name}"
+            )
+        if source_concept not in concept_lookup:
+            raise IntegrityError(
+                f"Cannot map {domain} feature to selected source concept: {feature_name}"
+            )
+        return concept_lookup[source_concept], summary
+    return "__domain_aggregate__", feature_name
 
 
 def _measurement_features(

@@ -131,6 +131,40 @@ class SourceAdapter(ABC):
                 bridge_raw, columns["bridge"], STANDARD_COLUMNS["bridge"], "bridge"
             )
         self._parse_dates(tables)
+        exact_death = tables["deaths"]["death_datetime"].notna()
+        tables["deaths"]["death_date"] = tables["deaths"]["death_date"].where(
+            tables["deaths"]["death_date"].notna(),
+            tables["deaths"]["death_datetime"].dt.normalize(),
+        )
+        tables["deaths"]["death_time_precision"] = tables["deaths"][
+            "death_time_precision"
+        ].where(
+            tables["deaths"]["death_time_precision"].notna(),
+            "datetime",
+        )
+        tables["deaths"]["death_source"] = tables["deaths"]["death_source"].where(
+            tables["deaths"]["death_source"].notna(),
+            self.source["tables"]["deaths"],
+        )
+        tables["deaths"]["death_source_conflict"] = tables["deaths"][
+            "death_source_conflict"
+        ].where(
+            tables["deaths"]["death_source_conflict"].notna(),
+            False,
+        )
+        if (~exact_death).any():
+            raise SchemaError("Mapped death records require exact death_datetime values")
+        for domain in ("measurements", "medications", "procedures"):
+            tables[domain]["event_date"] = tables[domain]["event_date"].where(
+                tables[domain]["event_date"].notna(),
+                tables[domain]["event_datetime"].dt.normalize(),
+            )
+            tables[domain]["event_time_precision"] = tables[domain][
+                "event_time_precision"
+            ].where(
+                tables[domain]["event_time_precision"].notna(),
+                "datetime",
+            )
         self._normalize_strings(tables)
         tables["deaths"] = (
             tables["deaths"]
@@ -159,6 +193,12 @@ class SourceAdapter(ABC):
             "unit",
             "semantics",
             "source_table",
+            "death_date",
+            "death_time_precision",
+            "death_source",
+            "death_source_conflict",
+            "event_date",
+            "event_time_precision",
         }
         for target in targets:
             source_column = mapping.get(target)
@@ -190,7 +230,7 @@ class SourceAdapter(ABC):
         date_columns = {
             "patients": ["birth_datetime"],
             "encounters": ["start_datetime", "end_datetime", "followup_end_datetime"],
-            "deaths": ["death_datetime"],
+            "deaths": ["death_datetime", "death_date"],
             "diagnoses": ["diagnosis_datetime"],
             "measurements": ["event_datetime"],
             "medications": ["event_datetime"],
@@ -216,6 +256,9 @@ class SourceAdapter(ABC):
                     "source_table",
                     "bridge_key",
                     "visit_type",
+                    "death_time_precision",
+                    "death_source",
+                    "event_time_precision",
                 }:
                     frame[column] = frame[column].astype("string")
 

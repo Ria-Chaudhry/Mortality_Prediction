@@ -90,6 +90,15 @@ paper:
   analysis_role: primary_development
   exact_release_required: true
   methodological_override_top21_confirmed: false
+  selection_rule_reconciled: false
+  shap_method_reconciled: false
+  selection_rule_blocker: >-
+    UNRESOLVED: the maintained manuscript specifies training-support prevalence
+    and 21 features, while completed MIMIC scripts used mutual information and
+    retained 15 measurement features.
+  shap_method_blocker: >-
+    UNRESOLVED: no completed unified eight-matrix CHoRUS/MIMIC SHAP execution
+    establishing the manuscript reconciliation procedure was recovered.
   mapping_rules_confirmed: false
   measurement_unit_rules_approved: false
   charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1
@@ -101,7 +110,7 @@ paper:
     chorus_mapping_template.csv: 5cd772ea699f26acb72ded63513c1155f714e651223926a91842a9f87e331442
     charlson_mapping.csv: 8fd72969d9804ab85334d875045e5df8ea25743d0e7140ad15499f7e752ea4fc
   release_clearance:
-    classification: internal_restricted
+    classification: restricted
     approved: false
     small_cell_threshold: UNCONFIRMED
   manuscript_reconciled: false
@@ -116,7 +125,8 @@ frozen_design:
   patient_folds: {method: seeded_group_k_fold, count: 5, seed: 42}
   top_concepts_per_domain: 50
   retained_derived_features_per_domain: 21
-  derived_feature_ranking: training_visit_occurrence_or_availability
+  derived_feature_ranking: pre_imputation_training_visit_support_proportion
+  derived_feature_selection_rule: training_support_prevalence_v1
   matrices: 8
   models: [logistic_regression, random_forest, gradient_boosting, lightgbm]
 overrides:

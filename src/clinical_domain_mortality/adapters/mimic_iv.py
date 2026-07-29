@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..config import require_environment_reference, resolve_project_path
@@ -82,6 +83,23 @@ class MIMICIVAdapter(LocalFileAdapter):
         if followup_policy not in {"assume_complete_death_capture", "source_column"}:
             raise ConfigurationError(
                 "Native MIMIC-IV requires an explicit supported followup_policy"
+            )
+        death_rule = native.get("death_rule")
+        if not isinstance(death_rule, dict) or death_rule.get("identifier") != (
+            "precise_admission_deathtime_then_patient_dod_v1"
+        ):
+            raise ConfigurationError(
+                "Native MIMIC-IV requires death_rule.identifier="
+                "precise_admission_deathtime_then_patient_dod_v1"
+            )
+        if death_rule.get("date_only_landmark_day") != "exclude_as_on_or_before_landmark":
+            raise ConfigurationError(
+                "Native MIMIC-IV requires an explicit supported date-only landmark policy"
+            )
+        if native.get("procedure_date_rule") != "calendar_dates_spanned_inclusive_v1":
+            raise ConfigurationError(
+                "Native MIMIC-IV procedures_icd requires procedure_date_rule="
+                "calendar_dates_spanned_inclusive_v1"
             )
 
         table_names = self.source["tables"]
@@ -379,29 +397,58 @@ class MIMICIVAdapter(LocalFileAdapter):
                 "ethnicity_at_admission": ethnicity,
             }
         )
-        death_rows = [
+        dod = (
             pd.DataFrame(
                 {
-                    "patient_id": patients_raw["subject_id"],
-                    "death_datetime": pd.to_datetime(patients_raw["dod"], errors="coerce"),
+                    "patient_id": patients_raw["subject_id"].astype("string"),
+                    "_dod": pd.to_datetime(patients_raw["dod"], errors="coerce"),
                 }
-            ),
+            )
+            .dropna(subset=["_dod"])
+            .sort_values(["patient_id", "_dod"], kind="stable")
+            .drop_duplicates("patient_id")
+        )
+        precise = (
             pd.DataFrame(
                 {
-                    "patient_id": admissions_raw["subject_id"],
-                    "death_datetime": pd.to_datetime(
+                    "patient_id": admissions_raw["subject_id"].astype("string"),
+                    "_deathtime": pd.to_datetime(
                         admissions_raw["deathtime"], errors="coerce"
                     ),
                 }
-            ),
-        ]
-        deaths = (
-            pd.concat(death_rows, ignore_index=True)
-            .dropna(subset=["death_datetime"])
-            .sort_values(["patient_id", "death_datetime"], kind="stable")
+            )
+            .dropna(subset=["_deathtime"])
+            .sort_values(["patient_id", "_deathtime"], kind="stable")
             .drop_duplicates("patient_id")
-            .reset_index(drop=True)
         )
+        deaths = precise.merge(dod, on="patient_id", how="outer", validate="one_to_one")
+        deaths["death_datetime"] = deaths["_deathtime"]
+        deaths["death_date"] = deaths["_deathtime"].dt.normalize().where(
+            deaths["_deathtime"].notna(), deaths["_dod"].dt.normalize()
+        )
+        deaths["death_time_precision"] = np.where(
+            deaths["_deathtime"].notna(), "datetime", "date"
+        )
+        deaths["death_source"] = np.where(
+            deaths["_deathtime"].notna(),
+            "admissions.deathtime",
+            "patients.dod",
+        )
+        deaths["death_source_conflict"] = (
+            deaths["_deathtime"].notna()
+            & deaths["_dod"].notna()
+            & deaths["_deathtime"].dt.normalize().ne(deaths["_dod"].dt.normalize())
+        )
+        deaths = deaths[
+            [
+                "patient_id",
+                "death_datetime",
+                "death_date",
+                "death_time_precision",
+                "death_source",
+                "death_source_conflict",
+            ]
+        ].reset_index(drop=True)
         return patients, encounters, deaths
 
     @staticmethod
@@ -448,6 +495,8 @@ class MIMICIVAdapter(LocalFileAdapter):
                 "bridge_key": pd.NA,
                 "patient_id": raw["subject_id"],
                 "event_datetime": pd.to_datetime(raw["charttime"], errors="coerce"),
+                "event_date": pd.to_datetime(raw["charttime"], errors="coerce").dt.normalize(),
+                "event_time_precision": "datetime",
                 "concept_key": source_name + ":" + raw["itemid"].astype("string"),
                 "concept_name": source_name + " item " + raw["itemid"].astype("string"),
                 "value": pd.to_numeric(raw["valuenum"], errors="coerce"),
@@ -490,6 +539,8 @@ class MIMICIVAdapter(LocalFileAdapter):
                 "bridge_key": pd.NA,
                 "patient_id": raw["subject_id"],
                 "event_datetime": pd.to_datetime(raw["starttime"], errors="coerce"),
+                "event_date": pd.to_datetime(raw["starttime"], errors="coerce").dt.normalize(),
+                "event_time_precision": "datetime",
                 "concept_key": "prescriptions:"
                 + concept_field
                 + ":"
@@ -510,12 +561,14 @@ class MIMICIVAdapter(LocalFileAdapter):
                 "Native MIMIC procedure_semantics must explicitly describe the source"
             )
         version = pd.to_numeric(raw["icd_version"], errors="coerce").astype("Int64")
-        concept = (
-            "procedures_icd:"
-            + version.astype("string")
-            + ":"
-            + raw["icd_code"].astype("string")
+        normalized_code = (
+            raw["icd_code"]
+            .astype("string")
+            .str.strip()
+            .str.upper()
+            .str.replace(r"[^A-Z0-9]", "", regex=True)
         )
+        concept = "icd" + version.astype("string") + ":" + normalized_code
         return pd.DataFrame(
             {
                 "event_id": _stable_event_keys(
@@ -526,7 +579,9 @@ class MIMICIVAdapter(LocalFileAdapter):
                 "source_visit_id": raw["hadm_id"],
                 "bridge_key": pd.NA,
                 "patient_id": raw["subject_id"],
-                "event_datetime": pd.to_datetime(raw["chartdate"], errors="coerce"),
+                "event_datetime": pd.NaT,
+                "event_date": pd.to_datetime(raw["chartdate"], errors="coerce").dt.normalize(),
+                "event_time_precision": "date",
                 "concept_key": concept,
                 "concept_name": concept,
                 "value": 1,

@@ -11,7 +11,7 @@
 | Direct/bridge/patient-time linkage | adapter mapping | `features/linkage.py` | linkage audit |
 | Outer-training top 50 | count/rank/tie | `features/selection.py` | concept selections/hashes |
 | 300/104/103 candidate features | domain definitions | `features/construction.py` | constructed count |
-| Requested outer-training top 21 | occurrence rank/name tie | construction | derived selections; 21/domain/fold |
+| Final outer-training 21 columns | support proportion/construction-order tie | construction | all-candidate selection table; 21 selected/domain/fold |
 | Equal domain counts/reuse across matrices | matrix definitions | `features/matrices.py` | matrix/feature manifests and tests |
 | Four frozen models/eight matrices | `models.yaml` | `modeling/runner.py` | 160 fit manifests |
 | Training-only learned transforms | model pipeline | `fit_predict_fold` | tests/fit manifests |
@@ -27,10 +27,11 @@
 | Performance table | selected models | stage 8 | performance table |
 | Clinical-utility table | operating point/top-risk | stage 8 | utility table |
 | Calibration table | selected calibration | stage 8 | calibration table |
+| Held-out SHAP | permutation/training background/held-out sample | `modeling/shap_analysis.py` | restricted fold aggregate and safe cross-fold summary |
 | Plot inputs | saved numerical coordinates | stage 8 | ROC/calibration/decision CSVs; no plots |
 | Paper counts | paper YAML only | builder | comparison and failed manifest on mismatch |
 | Paper reconciliation/release | paper YAML/governance | `verify_paper_run` | fail-closed verification status |
 
-The finalized PDF maps top-50 to 300/104/103 columns. The top-21 row is a later requested override,
-not an established manuscript setting. Paper configurations require explicit confirmation before
-they can execute.
+The completed MIMIC scripts and maintained manuscript disagree on the selection rule, concept
+count for medications, and measurement feature count. Paper configurations fail closed pending
+reconciliation; `recovered_method_provenance.md` records the evidence.

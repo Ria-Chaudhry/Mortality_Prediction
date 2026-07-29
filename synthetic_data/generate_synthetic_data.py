@@ -566,10 +566,31 @@ def write_mimic(tables: dict[str, pd.DataFrame]) -> None:
         ]
     ].to_csv(MIMIC / "prescriptions.csv", index=False)
     procedures = tables["procedures"].copy()
+    # Native procedures_icd rows carry hadm_id. Resolve synthetic fallback-linked
+    # rows to their unique encounter before discarding clock-time precision.
+    encounters = tables["encounters"]
+    for index in procedures.index[procedures["source_visit_id"].isna()]:
+        event_time = procedures.at[index, "event_datetime"]
+        patient = procedures.at[index, "patient_id"]
+        candidates = encounters.loc[
+            encounters["patient_id"].eq(patient)
+            & encounters["start_datetime"].le(event_time)
+            & (
+                event_time
+                < encounters["start_datetime"] + pd.Timedelta(hours=24)
+            )
+        ]
+        if len(candidates) == 1:
+            procedures.at[index, "source_visit_id"] = candidates.iloc[0]["visit_id"]
     procedures["seq_num"] = procedures.groupby(
         ["patient_id", "source_visit_id"], dropna=False
     ).cumcount() + 1
     procedures["icd_version"] = 10
+    # Native MIMIC-IV procedures_icd.chartdate is date-granularity. Do not
+    # fabricate a clock time in the synthetic native fixture.
+    procedures["event_datetime"] = pd.to_datetime(
+        procedures["event_datetime"], errors="raise"
+    ).dt.strftime("%Y-%m-%d")
     procedures.rename(
         columns={
             "source_visit_id": "hadm_id",

@@ -1,11 +1,14 @@
 # Fully pinned environment used by Makefile and CI. Generated from, installed,
-# and tested with the dependency declarations in pyproject.toml.
+# and tested with the dependency declarations in pyproject.toml on CPython 3.10.13.
+cloudpickle==3.1.2
 coverage==7.15.2
 exceptiongroup==1.3.1
 greenlet==3.2.3
 iniconfig==2.3.0
 joblib==1.5.3
 lightgbm==4.6.0
+llvmlite==0.48.0
+numba==0.66.0
 numpy==2.2.6
 packaging==26.2
 pandas==2.2.3
@@ -17,9 +20,12 @@ python-dateutil==2.9.0.post0
 pytz==2026.2
 scikit-learn==1.6.1
 scipy==1.15.3
+shap==0.49.1
 six==1.17.0
+slicer==0.0.8
 SQLAlchemy==2.0.41
 threadpoolctl==3.6.0
+tqdm==4.68.4
 tomli==2.4.1
 typing_extensions==4.16.0
 tzdata==2026.3

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..adapters import StandardizedData
@@ -42,9 +43,10 @@ def prepare_domain_events(
         if source["event_id"].duplicated().any():
             raise IntegrityError(f"{domain} contains duplicate event identifiers")
         _validate_semantics(source, domain, config)
-        linked, audit = _link_one(source, cohort_links, bridge, domain)
+        linked, audit = _link_one(source, cohort_links, bridge, domain, config)
         prepared[domain] = linked.sort_values(
-            ["cohort_visit_number", "event_datetime", "event_id"], kind="stable"
+            ["cohort_visit_number", "event_date", "event_datetime", "event_id"],
+            kind="stable",
         ).reset_index(drop=True)
         audits.extend(audit)
     return PreparedEvents(events=prepared, audit=pd.DataFrame(audits))
@@ -55,6 +57,7 @@ def _link_one(
     cohort: pd.DataFrame,
     bridge: pd.DataFrame,
     domain: str,
+    config: dict[str, Any],
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     work = source.copy()
     work["row_number"] = range(len(work))
@@ -95,7 +98,11 @@ def _link_one(
 
     remaining_rows = work.loc[work["cohort_visit_number"].isna()]
     for row in remaining_rows.itertuples():
-        if pd.isna(row.patient_id) or pd.isna(row.event_datetime):
+        if (
+            pd.isna(row.patient_id)
+            or pd.isna(row.event_datetime)
+            or str(row.event_time_precision) != "datetime"
+        ):
             continue
         candidates = cohort.loc[
             (cohort["patient_id"] == str(row.patient_id))
@@ -127,14 +134,36 @@ def _link_one(
         how="left",
         validate="many_to_one",
     )
-    in_window = (linked["event_datetime"] >= linked["start_datetime"]) & (
+    exact_time = linked["event_time_precision"].eq("datetime")
+    exact_in_window = (linked["event_datetime"] >= linked["start_datetime"]) & (
         linked["event_datetime"] < linked["predictor_end_datetime"]
     )
+    date_only = linked["event_time_precision"].eq("date")
+    date_rule = config.get("source", {}).get("native", {}).get(
+        "procedure_date_rule"
+    )
+    if date_only.any() and (
+        domain != "procedures"
+        or date_rule != "calendar_dates_spanned_inclusive_v1"
+    ):
+        raise LinkageError(
+            f"{domain} contains date-only events without the approved calendar-date rule"
+        )
+    date_in_window = (
+        linked["event_date"].notna()
+        & linked["event_date"].ge(linked["start_datetime"].dt.normalize())
+        & linked["event_date"].le(linked["predictor_end_datetime"].dt.normalize())
+    )
+    in_window = (exact_time & exact_in_window) | (date_only & date_in_window)
     out_of_window = int((~in_window).sum())
     linked = linked.loc[in_window].copy()
-    linked["hours_from_start"] = (
-        linked["event_datetime"] - linked["start_datetime"]
-    ).dt.total_seconds() / 3600
+    linked["hours_from_start"] = np.nan
+    exact_linked = linked["event_time_precision"].eq("datetime")
+    if exact_linked.any():
+        linked.loc[exact_linked, "hours_from_start"] = (
+            pd.to_datetime(linked.loc[exact_linked, "event_datetime"])
+            - linked.loc[exact_linked, "start_datetime"]
+        ).dt.total_seconds() / 3600
     linked = linked.drop(
         columns=["row_number", "_cohort_patient", "start_datetime", "predictor_end_datetime"]
     )

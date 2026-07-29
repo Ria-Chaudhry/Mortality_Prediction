@@ -24,6 +24,13 @@ source:
     medication_concept_field: formulary_drug_cd
     medication_semantics: prescription
     procedure_semantics: coded
+    procedure_date_rule: calendar_dates_spanned_inclusive_v1
+    death_rule:
+      identifier: precise_admission_deathtime_then_patient_dod_v1
+      precise_source: admissions.deathtime
+      date_only_fallback_source: patients.dod
+      date_only_landmark_day: exclude_as_on_or_before_landmark
+      inconsistent_sources: prefer_precise_and_audit
     race_harmonization:
       mode: identity
     ethnicity_harmonization:
