@@ -1,5 +1,20 @@
 # Synthetic freeze history
 
+## July 29, 2026 post-implementation provenance refresh
+
+The final clean-checkout verification correctly rejected safe-manifest hashes
+that still contained the package code hash from before the last implementation
+edits. All canonical analytical artifact hashes were unchanged. Two complete
+synthetic executions of the final code produced identical child run IDs and
+identical raw output-hash collections; the digest of those run IDs and output
+hash maps was
+`972ef695ec13630abb7f6301dd78851b26b36ebb7903e99eff0c44dbfcc86a17`.
+
+The guarded freeze command therefore updated only the two dataset
+safe-run-manifest hashes, the parent safe-manifest hash, and the expected-file
+checksum. No pooled metric, fold metric, calibration, utility, decision-curve,
+paired-comparison, selection, SHAP, or other analytical artifact hash changed.
+
 ## July 29, 2026 integrity and portability correction
 
 The format-3 freeze replaces cross-runtime raw-byte pins with canonical hashes
