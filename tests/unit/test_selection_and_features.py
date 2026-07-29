@@ -138,6 +138,43 @@ def test_zero_event_visits_are_preserved(
     assert values.fillna(0).eq(0).all().all()
 
 
+def test_derived_float_features_are_canonicalized_before_modeling(
+    prepared_events, fold_result, cohort_result, chorus_config
+):
+    training = _training_sets(fold_result, 0)
+    events = prepared_events.events["measurements"].copy()
+    selected_concept = events.loc[
+        events["cohort_visit_number"].isin(training), "concept_key"
+    ].astype(str).iloc[0]
+    mask = (
+        events["cohort_visit_number"].isin(training)
+        & events["concept_key"].astype(str).eq(selected_concept)
+    )
+    events.loc[mask, "value_numeric"] = 1.123456789123
+    selection = select_concepts(
+        events, training, "measurements", 0, chorus_config
+    )
+    feature = build_fold_domain_features(
+        cohort_result.cohort,
+        selection,
+        events,
+        training,
+        chorus_config,
+    )
+    decimal_places = chorus_config["features"]["numeric_canonicalization"][
+        "decimal_places"
+    ]
+    float_columns = [
+        column
+        for column in feature.frame
+        if pd.api.types.is_float_dtype(feature.frame[column])
+    ]
+    assert float_columns
+    for column in float_columns:
+        observed = feature.frame[column].dropna()
+        assert observed.eq(observed.round(decimal_places)).all()
+
+
 def test_too_few_concepts_hard_fails(chorus_config):
     with pytest.raises(IntegrityError):
         select_concepts(

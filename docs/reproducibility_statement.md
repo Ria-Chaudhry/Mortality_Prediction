@@ -10,7 +10,9 @@ Fixed ordering and seeds govern folds, ties, estimators, top-risk groups, and bo
 Timestamps, machine paths, and Git dirty state are excluded from canonical synthetic equality.
 Raw serialization hashes remain enforced within each run but are excluded from the committed
 cross-platform manifest; public numeric tables are serialized and canonically compared at ten
-decimal places.
+decimal places. Derived floating-point features are canonically rounded to eight decimal places
+before feature hashing, preprocessing, and fitting; this versioned configuration boundary removes
+platform-level aggregation noise before it can change tree split ties.
 Frozen aggregate verification supports CPython 3.10.13 exactly; unsupported runtimes fail before
 execution rather than producing a misleading cross-runtime manifest mismatch.
 

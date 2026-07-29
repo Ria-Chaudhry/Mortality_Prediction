@@ -48,6 +48,7 @@ def build_fold_domain_features(
         )
     else:
         raise IntegrityError(f"Unknown feature domain: {selection.domain}")
+    frame = _canonicalize_numeric_features(frame, config)
     if frame["cohort_visit_number"].tolist() != cohort["cohort_visit_number"].tolist():
         raise IntegrityError(f"{selection.domain} feature construction changed cohort row order")
     full_names = [column for column in frame if column != "cohort_visit_number"]
@@ -94,6 +95,26 @@ def build_fold_domain_features(
             identity_columns=["cohort_visit_number"],
         ),
     )
+
+
+def _canonicalize_numeric_features(
+    frame: pd.DataFrame,
+    config: dict[str, Any],
+) -> pd.DataFrame:
+    """Freeze derived floating values before selection, hashing, or modeling."""
+    settings = config["features"]["numeric_canonicalization"]
+    if settings["identifier"] != "derived_numeric_decimal_round_v1":
+        raise IntegrityError("Unsupported derived numeric canonicalization rule")
+    decimal_places = int(settings["decimal_places"])
+    canonical = frame.copy()
+    for column in canonical.columns:
+        if column == "cohort_visit_number" or not pd.api.types.is_float_dtype(
+            canonical[column]
+        ):
+            continue
+        rounded = canonical[column].round(decimal_places)
+        canonical[column] = rounded.mask(rounded.eq(0), 0.0)
+    return canonical
 
 
 def _select_derived_features(

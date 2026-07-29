@@ -133,6 +133,21 @@ def validate_config(config: dict[str, Any]) -> None:
         "mutual_information_after_training_median_v1",
     }:
         raise ConfigurationError("Unsupported derived-feature selection rule")
+    canonicalization = config["features"].get("numeric_canonicalization", {})
+    if canonicalization.get("identifier") != "derived_numeric_decimal_round_v1":
+        raise ConfigurationError(
+            "Unsupported derived numeric canonicalization rule"
+        )
+    decimal_places = canonicalization.get("decimal_places")
+    if (
+        isinstance(decimal_places, bool)
+        or not isinstance(decimal_places, int)
+        or not 0 <= decimal_places <= 15
+    ):
+        raise ConfigurationError(
+            "features.numeric_canonicalization.decimal_places must be "
+            "an integer from 0 through 15"
+        )
     if config["adapter"] == "mimiciv" and config["source"].get("layout") == "native":
         native = config["source"].get("native", {})
         if native.get("procedure_date_rule") != "calendar_dates_spanned_inclusive_v1":

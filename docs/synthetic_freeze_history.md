@@ -1,5 +1,22 @@
 # Synthetic freeze history
 
+## July 29, 2026 derived-float portability boundary
+
+Clean Ubuntu and macOS executions with the same CPython and dependency lock
+showed that platform-level floating aggregation noise could change tied
+scikit-learn tree splits. LightGBM outputs were identical; the affected public
+feature/matrix hashes and random-forest/gradient-boosting aggregates established
+that the divergence entered through derived numeric values before fitting.
+
+The pipeline now applies the versioned
+`derived_numeric_decimal_round_v1` rule at eight decimal places to finite
+derived floating features before support ranking, hashing, preprocessing, or
+model fitting. Missingness and integer occurrence features are unchanged. Two
+complete final-code runs produced identical child run IDs and raw output-hash
+maps with digest
+`aba3d8674f8717e3ec5b1b247e47d4d7ecea2b5981efe5c85eb71da62d773c2a`
+before the guarded freeze command was used.
+
 ## July 29, 2026 post-implementation provenance refresh
 
 The final clean-checkout verification correctly rejected safe-manifest hashes

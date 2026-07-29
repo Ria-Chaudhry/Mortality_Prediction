@@ -67,9 +67,11 @@ make verify
 The MIMIC synthetic run directly consumes official-shaped native tables. Verification pins the
 complete deterministic aggregate artifact set, safe run-manifest fields, schemas, design counts,
 and canonical calculation hashes. Public floating-point outputs are serialized at ten decimal
-places; same-run manifests verify exact file bytes, while committed cross-platform pins compare
-those published values under the sole
-supported CPython and dependency lock. Patient-level cohort, feature, fold, event, and OOF files remain under ignored
+places. Derived floating-point features are first canonicalized at the configured eight-decimal
+boundary before hashing, preprocessing, or fitting so platform-level aggregation noise cannot
+change tree split ties. Same-run manifests verify exact file bytes, while committed
+cross-platform pins compare those published values under the sole supported CPython and
+dependency lock. Patient-level cohort, feature, fold, event, and OOF files remain under ignored
 `restricted_outputs/`.
 
 Updating expected synthetic outputs is intentionally separate from verification and requires
