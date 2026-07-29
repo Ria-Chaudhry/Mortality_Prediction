@@ -35,6 +35,12 @@ from .modeling import (
     fold_shap_aggregate,
     validate_oof_predictions,
 )
+from .runtime import (
+    FROZEN_REFERENCE_MACHINE,
+    FROZEN_REFERENCE_SYSTEM,
+    SUPPORTED_PYTHON,
+    validate_frozen_verification_runtime,
+)
 
 
 @dataclass
@@ -732,6 +738,34 @@ def verify_run(run_dir: str | Path) -> dict[str, Any]:
     for dataset in datasets:
         dataset_dir = root / dataset if (root / dataset).is_dir() else root
         manifest = read_json(dataset_dir / "run_manifest.json")
+        expected_code_hash = _code_hash()
+        if manifest.get("code_hash") != expected_code_hash:
+            raise IntegrityError(
+                f"Run code hash does not match the current source for {dataset}"
+            )
+        selection_hashes = sorted(
+            pd.read_csv(dataset_dir / "fold_concept_selections.csv")[
+                "selection_hash"
+            ]
+            .drop_duplicates()
+            .astype(str)
+            .tolist()
+        )
+        expected_run_id = hash_object(
+            {
+                "dataset": manifest.get("dataset"),
+                "config": manifest.get("config_hash"),
+                "code": expected_code_hash,
+                "inputs": manifest.get("input_hashes"),
+                "cohort": manifest.get("cohort_hash"),
+                "folds": manifest.get("fold_hash"),
+                "selections": selection_hashes,
+            }
+        )
+        if manifest.get("run_id") != expected_run_id:
+            raise IntegrityError(
+                f"Run ID is inconsistent with frozen analytical inputs for {dataset}"
+            )
         verify_hashes(dataset_dir, manifest["output_hashes"])
         expected_files = set(manifest["output_hashes"]) | {
             "run_manifest.json",
@@ -765,6 +799,23 @@ def verify_run(run_dir: str | Path) -> dict[str, Any]:
             "files_verified": len(manifest["output_hashes"]),
         }
     if set(datasets) == {"chorus", "mimiciv"}:
+        parent_manifest = read_json(root / "run_manifest.json")
+        expected_child_ids = {
+            dataset: verified[dataset]["run_id"]
+            for dataset in ("chorus", "mimiciv")
+        }
+        if parent_manifest.get("datasets") != ["chorus", "mimiciv"]:
+            raise IntegrityError("Synthetic parent manifest dataset order changed")
+        if parent_manifest.get("child_run_ids") != expected_child_ids:
+            raise IntegrityError(
+                "Synthetic parent manifest child run IDs do not match "
+                "the verified dataset manifests"
+            )
+        summary_path = root / "synthetic_run_summary.csv"
+        if parent_manifest.get("summary_hash") != hash_file(summary_path):
+            raise IntegrityError(
+                "Synthetic parent manifest summary hash is inconsistent"
+            )
         expected = read_json(
             PROJECT_ROOT / "synthetic_data" / "expected_outputs" / "expected_summary.json"
         )
@@ -783,7 +834,7 @@ def verify_run(run_dir: str | Path) -> dict[str, Any]:
                 "Synthetic expected hashes changed outside the intentional freeze procedure"
             )
         expected_hashes = read_json(expected_path)
-        summary = pd.read_csv(root / "synthetic_run_summary.csv").sort_values(
+        summary = pd.read_csv(summary_path).sort_values(
             "dataset", kind="stable"
         )
         observed = {
@@ -805,8 +856,21 @@ def verify_run(run_dir: str | Path) -> dict[str, Any]:
             )
         if observed["chorus"] != observed["mimiciv"]:
             raise IntegrityError("Equivalent synthetic adapters did not converge to the same cohort")
-        if expected_hashes.get("format_version") != 3:
+        if expected_hashes.get("format_version") != 4:
             raise IntegrityError("Unsupported synthetic freeze manifest format")
+        reference_runtime = {
+            "system": FROZEN_REFERENCE_SYSTEM,
+            "machine": FROZEN_REFERENCE_MACHINE,
+            "python": SUPPORTED_PYTHON,
+            "requirements_lock_sha256": hash_file(
+                PROJECT_ROOT / "requirements.lock"
+            ),
+        }
+        if expected_hashes.get("reference_runtime") != reference_runtime:
+            raise IntegrityError(
+                "Synthetic freeze reference-runtime metadata is inconsistent"
+            )
+        validate_frozen_verification_runtime()
         for dataset in ("chorus", "mimiciv"):
             frozen = expected_hashes["datasets"][dataset]
             actual_names = sorted(
@@ -861,12 +925,21 @@ def freeze_synthetic_expected(
         raise ConfigurationError(
             "Synthetic freeze requires --approve-update after reviewing all aggregate changes"
         )
+    validate_frozen_verification_runtime()
     root = Path(run_dir).resolve()
     if not all((root / dataset).is_dir() for dataset in ("chorus", "mimiciv")):
         raise IntegrityError("Freeze requires completed CHoRUS and MIMIC synthetic runs")
     frozen: dict[str, Any] = {
-        "format_version": 3,
+        "format_version": 4,
         "canonical_float_decimal_places": 10,
+        "reference_runtime": {
+            "system": FROZEN_REFERENCE_SYSTEM,
+            "machine": FROZEN_REFERENCE_MACHINE,
+            "python": SUPPORTED_PYTHON,
+            "requirements_lock_sha256": hash_file(
+                PROJECT_ROOT / "requirements.lock"
+            ),
+        },
         "datasets": {},
     }
     for dataset in ("chorus", "mimiciv"):
@@ -965,6 +1038,8 @@ def _safe_run_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "created_utc",
         "git_commit",
         "git_worktree_dirty",
+        "run_id",
+        "code_hash",
         "output_hashes",
     }
     return {
@@ -978,7 +1053,7 @@ def _safe_parent_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in manifest.items()
-        if key not in {"created_utc", "summary_hash"}
+        if key not in {"created_utc", "child_run_ids", "summary_hash"}
     }
 
 

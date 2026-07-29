@@ -14,8 +14,19 @@ derived floating features before support ranking, hashing, preprocessing, or
 model fitting. Missingness and integer occurrence features are unchanged. Two
 complete final-code runs produced identical child run IDs and raw output-hash
 maps with digest
-`aba3d8674f8717e3ec5b1b247e47d4d7ecea2b5981efe5c85eb71da62d773c2a`
-before the guarded freeze command was used.
+`13271f60c66c4eafa881cd3d03e4738870d2296e99909f83869049bdd2d7de1f`
+before the reference manifest was finalized.
+
+This boundary stabilized feature and matrix hashes across the tested systems,
+but fitted random-forest/gradient-boosting outputs still differed because the
+compiled scikit-learn tree implementations made different tied split choices.
+The exact fitted-model freeze is consequently scoped to CPython 3.10.13 on
+Linux x86_64, with CI pinned to Ubuntu 24.04. Other systems retain exact
+same-run and repeated-run checks but cannot certify the Ubuntu model baseline.
+Code hashes and child run IDs are recomputed directly from current source and
+analytical provenance during every verification; they are not duplicated in
+the safe-view hash. Parent child IDs are likewise checked directly before the
+platform-specific fitted-model comparison.
 
 ## July 29, 2026 post-implementation provenance refresh
 

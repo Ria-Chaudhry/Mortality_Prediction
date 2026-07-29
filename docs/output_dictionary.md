@@ -38,8 +38,9 @@ events, fold features, clinical concept lists, feature importance, and OOF predi
 `feature_matrix_hash` cover identities, ordered columns/types, and values. Canonical analytical
 input signatures are row-order-independent where source row order is incidental.
 
-Synthetic verification performs exact same-run file checksum validation and separately pins every
-deterministic aggregate using a cross-platform canonical table contract (ordered columns/rows and
-numeric values serialized at ten decimal places). Timestamp, Git-state, and raw output-byte hashes
-are excluded from stable run-manifest equality. Missing, unexpected, or mutated artifacts fail
-verification.
+Synthetic verification performs exact same-run file checksum validation. On the frozen Linux
+x86_64 reference runtime, it separately pins every deterministic aggregate using an ordered table
+contract with numeric values serialized at ten decimal places. Timestamp, Git-state, and raw
+output-byte hashes are excluded from stable run-manifest equality. The freeze records the exact
+Python, architecture, and dependency-lock identity; parent-level frozen verification fails closed
+on other platforms. Missing, unexpected, or mutated artifacts fail verification.

@@ -14,10 +14,13 @@ from clinical_domain_mortality.audit.privacy import (
     PUBLIC_CLINICAL_TABLE_SCHEMAS,
 )
 from clinical_domain_mortality.config import PROJECT_ROOT
-from clinical_domain_mortality.errors import IntegrityError
+from clinical_domain_mortality.errors import ConfigurationError, IntegrityError
 from clinical_domain_mortality.hashing import hash_file
 from clinical_domain_mortality.io import read_json, write_csv, write_json
 from clinical_domain_mortality.pipeline import verify_run
+from clinical_domain_mortality.runtime import (
+    frozen_verification_runtime_supported,
+)
 
 
 def _run_in_fresh_process(config, public, restricted):
@@ -139,7 +142,14 @@ def test_both_adapters_end_to_end(tmp_path):
         },
         public / "run_manifest.json",
     )
-    verify_run(public)
+    if frozen_verification_runtime_supported():
+        verify_run(public)
+    else:
+        with pytest.raises(
+            ConfigurationError,
+            match="Exact frozen fitted-model verification supports only",
+        ):
+            verify_run(public)
 
     clinical_candidate = tmp_path / "clinical_candidate"
     for source in (public / "chorus").rglob("*"):
@@ -192,6 +202,13 @@ def test_both_adapters_end_to_end(tmp_path):
     changed_manifest = dict(original_manifest)
     changed_manifest["run_id"] = "adversarial-change"
     write_json(changed_manifest, manifest_path)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError, match="Run ID is inconsistent"):
+        verify_run(public)
+    write_json(original_manifest, manifest_path)
+
+    changed_manifest = dict(original_manifest)
+    changed_manifest["code_hash"] = "adversarial-change"
+    write_json(changed_manifest, manifest_path)
+    with pytest.raises(IntegrityError, match="code hash"):
         verify_run(public)
     write_json(original_manifest, manifest_path)

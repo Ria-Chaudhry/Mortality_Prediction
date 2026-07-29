@@ -12,7 +12,11 @@ from clinical_domain_mortality.pipeline import (
     paper_preflight,
     run_pipeline,
 )
-from clinical_domain_mortality.runtime import validate_supported_runtime
+from clinical_domain_mortality.runtime import (
+    frozen_verification_runtime_supported,
+    validate_frozen_verification_runtime,
+    validate_supported_runtime,
+)
 
 
 @pytest.mark.parametrize(
@@ -37,6 +41,15 @@ def test_unsupported_python_runtime_fails_before_execution(monkeypatch):
     monkeypatch.setattr("platform.python_version", lambda: "3.12.13")
     with pytest.raises(ConfigurationError, match="CPython 3.10.13"):
         validate_supported_runtime()
+
+
+def test_frozen_verification_runtime_is_fail_closed(monkeypatch):
+    monkeypatch.setattr("platform.python_version", lambda: "3.10.13")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    assert frozen_verification_runtime_supported() is False
+    with pytest.raises(ConfigurationError, match="Linux x86_64"):
+        validate_frozen_verification_runtime()
 
 
 def test_paper_selection_verification_reads_actual_tables(tmp_path, chorus_config):

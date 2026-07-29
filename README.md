@@ -42,7 +42,7 @@ is reconciled. See
 
 ## Install and test
 
-Frozen verification supports CPython 3.10.13 exactly:
+Execution and same-runtime repeat checks support CPython 3.10.13 exactly:
 
 ```bash
 python3 -m venv .venv
@@ -69,9 +69,21 @@ complete deterministic aggregate artifact set, safe run-manifest fields, schemas
 and canonical calculation hashes. Public floating-point outputs are serialized at ten decimal
 places. Derived floating-point features are first canonicalized at the configured eight-decimal
 boundary before hashing, preprocessing, or fitting so platform-level aggregation noise cannot
-change tree split ties. Same-run manifests verify exact file bytes, while committed
-cross-platform pins compare those published values under the sole supported CPython and
-dependency lock. Patient-level cohort, feature, fold, event, and OOF files remain under ignored
+change tree split ties. Same-run manifests verify exact file bytes.
+
+Exact frozen fitted-model verification is intentionally narrower because pinned scikit-learn
+tree builds can make different tied split choices across operating systems even with identical
+inputs, versions, seeds, and one thread. The reference platform is CPython 3.10.13 on Linux
+x86_64; CI pins Ubuntu 24.04. `make verify` fails closed elsewhere rather than accepting a
+different fitted-model baseline. On another platform, dataset-level structural and exact
+same-run checks remain available with:
+
+```bash
+clinical-domain-mortality verify --run-dir outputs/synthetic/chorus
+clinical-domain-mortality verify --run-dir outputs/synthetic/mimiciv
+```
+
+Patient-level cohort, feature, fold, event, and OOF files remain under ignored
 `restricted_outputs/`.
 
 Updating expected synthetic outputs is intentionally separate from verification and requires

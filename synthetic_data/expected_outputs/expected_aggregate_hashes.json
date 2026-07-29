@@ -3,9 +3,9 @@
   "datasets": {
     "chorus": {
       "artifact_hashes": {
-        "all_metric_confidence_intervals.csv": "8f0f21bd47e360c873fb3c5af01c541ccfd73483e3b4b736978d542b2a3c34b7",
+        "all_metric_confidence_intervals.csv": "60996c38cf8444e3d5737ad4cb38dfbf4a640edaac55a40a234ac24a7aa9dc3e",
         "attrition.csv": "21463db3e47fedf36c1c342fc57131d08ea324268eb1b83e9683d985d560ce50",
-        "best_model_by_matrix.csv": "558c6588261f4e500c811104e99c4b2406f1b69081c294e89ea17f882ef64bc1",
+        "best_model_by_matrix.csv": "08efa1908602d77deb2b841ee50b80991e5c4381d26cab15c5851b6968b76fee",
         "cohort_manifest.json": "a81555bdd69d90dea7b7b44f333d32c09b4fb8c55004acd0b195860e4863ee4e",
         "concept_selection_frequency.csv": "4b2ca2de86f9d4e5d8e715f1184cf773d80f8898fe72718bea8f6ba7de5864cb",
         "event_linkage_audit.csv": "197f60f0b0f3b75e2b6ebb093cf07447a96bb5a7b9bd3da91d70ee2e3c251bc7",
@@ -13,9 +13,9 @@
         "feature_manifest.csv": "e63a28c8d0da945e14d5ab9d3b7e674804b9eb99a4e1159a99d513b979527068",
         "fold_concept_selections.csv": "f516d46b6514f24322d7882d1af1e6ec36c44064b30d6541277e4938affec432",
         "fold_derived_feature_selections.csv": "7414d5e503f0e76e7f1c95b88cfadb9e95cb8f44dd810f765ceac5e11fe0f06e",
-        "fold_feature_importance.csv": "fbe171d4a97320bdd7e6175fb9fc658075cebcc67e2cb0989dc85f51bac4ed26",
-        "fold_metric_summaries.csv": "2659ffe18b60ed48d8234410e1223062e5da449674f60a1e3180c58e0ae3447c",
-        "fold_metrics.csv": "36cb8977f77b8f6fea7f3334fcc57e58d6794147317c87769b7e20c0ade19c36",
+        "fold_feature_importance.csv": "eb96a5ac6128f72a5ebe5892a8c4068aba1d4c94eefbdad13b785b838cd375bc",
+        "fold_metric_summaries.csv": "1bf01d4ffe4e587c22580e4ca297cde0db249c345082677fd313892c67c7a457",
+        "fold_metrics.csv": "aa4889c2cac6029588401f27e802624d22c3ed8eeb01031c8c0a2c7b31c93bd1",
         "fold_summary.csv": "5bba9e34bb6e6ac73dc09ece7839c079a2cd616bcd2803688828b8f8b99b60bb",
         "manifests/configuration_manifest.json": "6060c70bd207437a231bbe522cc4b859663d8511931e844363461b90b51a4bdb",
         "manifests/dataset_manifest.json": "34a81a6156edec1d3d82d537c94e9659f5db6d3696f932678e06ac50abd353ab",
@@ -25,24 +25,24 @@
         "manifests/mapping_manifest.json": "071f376da2c12ec2e79079bb435048548f779aa3d6a8142460bff9811c600d82",
         "manifests/matrix_manifest.json": "229e1f447fa316a86a3dfa4a65fcf7634111df9baa71c10e9c40b5e59bc1f4c3",
         "manifests/model_manifest.json": "df8bc371b5a024dc14c0ae2ee69b08084c4741ff913efd9b6a2f21c7e3ba0bba",
-        "manifests/output_manifest.json": "449104e0c4c9939ddd88e9ea3c555a33c0483ba28347b26e10244ae14da45c5e",
+        "manifests/output_manifest.json": "f0c5e4da7b783d69da7d11f2767dd345636bbccc7945ad8502591e624c4496e3",
         "manifests/selection_manifest.json": "bf35d28961bcba6846f2e42cded954f45ccfe742c787448090607bcb8c31db3f",
         "mapping_validation.json": "36467bcb728f079b90ff01e90a308679a826ad3f5baff46c3210c7abb21fe31d",
         "matrix_manifest.csv": "dd1cde9227f8b3190fa3c730c7ac05e670c732cf5561217cf7d082846e2116da",
         "measurement_unit_audit.csv": "a3f5a7b58b50d93784c4d8785bff6e07ceed97b95ee89a0259a51a73c56d7764",
-        "pooled_oof_metrics.csv": "2af3daf008b517a4a3b0ffb3bdc3c7dad52787941838ef16067361a3aecfc6a8",
-        "prespecified_paired_matrix_comparisons.csv": "2a3f0be4cc9f576d8ee1d93a0fa5b65ed8960239e54a033c8cdaefe434092e00",
-        "selected_model_calibration_table.csv": "7fe287f29ec78a8f9ed995b5c4400504abef4d574ba7fb5d8377badbbef050c7",
-        "selected_model_clinical_utility_table.csv": "aaf7420f1db304585b03a4a2432ee25271b2db3928c60113f6143792330df011",
-        "selected_model_performance_table.csv": "52c886b745a3f14ecaad20b3a9a27f6f717fa7849e01d534c9c0a1aa38eea129",
-        "selected_models_calibration_coordinates.csv": "ef39f5526ab463ca0fde018548579c20c49f305ed0a69bdccf87176bbee2b5c3",
-        "selected_models_calibration_summary.csv": "7fe287f29ec78a8f9ed995b5c4400504abef4d574ba7fb5d8377badbbef050c7",
-        "selected_models_decision_curve_coordinates.csv": "5dc646e00296e40b4a07cebdf6d7958cc829383d57a584d47ca9ad72649801c8",
-        "selected_models_roc_coordinates.csv": "2b2339113302d8896dcd325c1fbb9f3e0210eccc11bfe1efe8a5f48e3687e371",
-        "selected_models_sensitivity_at_90_specificity.csv": "30ce56c535996cbd9a7e13f2c0a99b3f8250f3b3fb3e1b7dc06302840c70f044",
+        "pooled_oof_metrics.csv": "e0414e6c1e2f28db80be423e2a2f927e5a60742d038a3c97e06e0f7df168e882",
+        "prespecified_paired_matrix_comparisons.csv": "0d2af8b5e7788a641a9a2ce4008167fd563ed12de097bcccb388bab32ae74c45",
+        "selected_model_calibration_table.csv": "7115e106e2b625d13813df5f7ecb4b3d7204a94381c0839a255c6dfb79a8236c",
+        "selected_model_clinical_utility_table.csv": "d5085dee05d6b7114a27bb879ef8e11ef9996e9837ff7a36f7f19c86acc48fa9",
+        "selected_model_performance_table.csv": "dadd3466cc298a0c0508a3e87aa6a91c05b765d5b1c06dee49a704291c119373",
+        "selected_models_calibration_coordinates.csv": "e4fdd71c0cf65cc16be65deb17830d49d397b29544b5726924b5ecf0b2577c53",
+        "selected_models_calibration_summary.csv": "7115e106e2b625d13813df5f7ecb4b3d7204a94381c0839a255c6dfb79a8236c",
+        "selected_models_decision_curve_coordinates.csv": "a7aff991d9a048b41e74a9f4248c3d95ec05481fdf0879c510406cf76f10c21f",
+        "selected_models_roc_coordinates.csv": "96e625ca06a21083476d0367c990a7aef1f2d9fb4130740c35968029f1daacfa",
+        "selected_models_sensitivity_at_90_specificity.csv": "d0faed58e0221e03cba8a3cd5e7fc34958a06f2e5383d490120842233cf21b11",
         "selected_models_top_10_percent_risk_analysis.csv": "eea51634644e431f9b8d4116879038614f67be85e3f88c5c518caa5a78bc7f72",
-        "shap_fold_aggregates.csv": "5315cd1d45374ee926d083d14f736a311bd492cc82ac1998e3818d96083e4e60",
-        "shap_summary.csv": "9b7d02743fb76ced7b8dfc75c405e736abdd9ea16f0462bee784f2d09b7e14bb",
+        "shap_fold_aggregates.csv": "7542ec1afa02724a9ce8ecc3ef90b1b4870ce0ede3bf1d5a7a041e2d9ded27d8",
+        "shap_summary.csv": "b918342cee9c52efd08cc66906e2ab9190ec9ad89c50286d849c8bed9963660a",
         "source_mapping_validation.json": "191bf88c03f7345e397693db8ce3fc8271e7f5a37003c377414444ca69f32448"
       },
       "artifact_names": [
@@ -88,11 +88,11 @@
         "shap_summary.csv",
         "source_mapping_validation.json"
       ],
-      "safe_run_manifest_hash": "4ef70456f709c5782d40eb63de9166241e6c2505350007bcf4cef532f66335fc"
+      "safe_run_manifest_hash": "d0270d9a604a1d8c72631c8945c34f496bd4ca3c507aba7983f1738c237ecddd"
     },
     "mimiciv": {
       "artifact_hashes": {
-        "all_metric_confidence_intervals.csv": "241494157be30b49c41876229097c54e71aecc6e74aaded41198d6520c1dbefd",
+        "all_metric_confidence_intervals.csv": "c444c6ffeee5b612443aed346c2a762250010e3f4d9c1def0535e73687eb7ac0",
         "attrition.csv": "21463db3e47fedf36c1c342fc57131d08ea324268eb1b83e9683d985d560ce50",
         "best_model_by_matrix.csv": "da85d92b591aa45c6c4e83d669d90b7d7d96d12f23a44d3eda40cc57b321f128",
         "cohort_manifest.json": "60b37fe3c19468e38600c5a47513c9b5325c1535ceadb393ce6c7879fb957c54",
@@ -102,9 +102,9 @@
         "feature_manifest.csv": "7bef7339f025320bf24c87c77cebff69c32c63b3420cecdbc1ff01c6d87d354e",
         "fold_concept_selections.csv": "af7d5abe13f6883415fc739085637c4227680a285d782fddfa81cf5587efb2e6",
         "fold_derived_feature_selections.csv": "bfb676256aec8c5a4204b0aa66234d0a0b21d94da5fcffd488cf0807208e2fdc",
-        "fold_feature_importance.csv": "9f085fef3d855f28969d95cccf6df2c7a71a0c9586192c44a9453f8266bb6d9a",
-        "fold_metric_summaries.csv": "c175ef87c372d1c2e7b7e9b95d914651e2a98d3fbb8a53bf7a1ee2de93e014ae",
-        "fold_metrics.csv": "c0ba79ce3d21bb32659dbd21d02aa1c873636d1052dc0001eb9221e74013f642",
+        "fold_feature_importance.csv": "af530baa5bb1a9e7ced5ebd72cf9800ac1b481ca3c37d397bb4cde14284a202c",
+        "fold_metric_summaries.csv": "d543213913755672a0ac00ecfaabb9a10ddbdb8eb6fcb5865d302d4b36a085c4",
+        "fold_metrics.csv": "157424c155a47e5441a7b17e810f6d4319b3db88eeccc586c74e378d8e8290f1",
         "fold_summary.csv": "5bba9e34bb6e6ac73dc09ece7839c079a2cd616bcd2803688828b8f8b99b60bb",
         "manifests/configuration_manifest.json": "fc25b28c179e5fc745d5219f42347afe7a8f23d5d459458bc48891f3452e2655",
         "manifests/dataset_manifest.json": "74f7834e6f9a65fef9111173367040e1eebc6024ecfe3a80815c39a9dfc683f4",
@@ -114,12 +114,12 @@
         "manifests/mapping_manifest.json": "5b0d16d6709ce299683da042176e12040cc306ad3d0cdea9be06134f13a0b72c",
         "manifests/matrix_manifest.json": "ff0ed1f821f43b63535b3526dde729f13869deffe962e40bd5c8b4a5689caadc",
         "manifests/model_manifest.json": "3035015f506c7baed2e3d52b345c2d6043a744945e03fb04f84faebff3b5a61c",
-        "manifests/output_manifest.json": "b861ca5ca0ede52ec38246a67e0a1c92a1ca09dad297a2fa058239220483b917",
+        "manifests/output_manifest.json": "f065d05dd750ae5c1965b70b637df2637f1c9f71fc47aec261332ba327da31d1",
         "manifests/selection_manifest.json": "fc793b77a71cbde852cddd081d7be5b72d8fad8ec2d0098b969013cf0b0c4809",
         "mapping_validation.json": "e1660994aa532a59b6a5bed12c1380cb10a0daeaf4388272de488d0b97810cc5",
         "matrix_manifest.csv": "573d0966a68df7734b57327a5a85ae265ff10578bbc0fccf7f666cb48804510b",
         "measurement_unit_audit.csv": "4c08c3c4a373c36f0867bbce564a745af86c339ef6fbb0d38d9bfec46b13f959",
-        "pooled_oof_metrics.csv": "0f02fae159298691a4c8d6aa76f9eecb50a1e3c42af7ef99502c73a32d33ee47",
+        "pooled_oof_metrics.csv": "ba1e2c7d590d6458b38f16bc767031666ea327339d87db5e8d7d679792dcbd0f",
         "prespecified_paired_matrix_comparisons.csv": "9677a4b9c0261139e17b4f1cdf94d62fcaaf58df31d34bcf78c16f57feef31b4",
         "selected_model_calibration_table.csv": "73acb22320e7be5d4a6fdf57c8457e254c878dffbe130cdf2f1c73fa506e91d8",
         "selected_model_clinical_utility_table.csv": "2c645bf77d00483f5c7b1eef6111a0815148b53ed97f36f6ce24c2afc8041d7c",
@@ -130,8 +130,8 @@
         "selected_models_roc_coordinates.csv": "c6dcd56932c9e5f5ce9f4b203d1bfd1b7fd314937d4cecdf9f88d23df728bce5",
         "selected_models_sensitivity_at_90_specificity.csv": "14db8b9c2817f8680537585dc8bec7546192457007cbe5913543092f9f2debab",
         "selected_models_top_10_percent_risk_analysis.csv": "bc9ab0558645fcb69020362ddd7148f3e69eb2ead8f62374879106028aeacc7e",
-        "shap_fold_aggregates.csv": "2bc8f7aa096a8af9294eb0e8b047c1dc48d5bdde21e6ececedba1bd95cbf6834",
-        "shap_summary.csv": "dde248c66ef84042d77f2caa634ed32d119d84ad486bd8680cf84fa523d6943e",
+        "shap_fold_aggregates.csv": "e9c6402c18114f6ef16c42d37386c3778afeac85c481f5c776cfcc6f36b12a11",
+        "shap_summary.csv": "fb53ea478e653efb6f0ad8ffd2b66e1a6947b47213247b1082194ea9cbcade36",
         "source_mapping_validation.json": "75d7d6d28aa44c20aef8c78f34627d22da8133faa0d1d7eb938aa338b276e4d1"
       },
       "artifact_names": [
@@ -177,10 +177,16 @@
         "shap_summary.csv",
         "source_mapping_validation.json"
       ],
-      "safe_run_manifest_hash": "066deb7df0ec966758045e6c667a34ee67ee06bd319ecd8c24c4cdb3c5ab274c"
+      "safe_run_manifest_hash": "67ec45b3818d003d7253497f80a2a23cebf01b09a77cbfc9e892bdae70ec0b4f"
     }
   },
-  "format_version": 3,
-  "safe_parent_manifest_hash": "d71339cc54dcb6177bd7f4920eb79aaf676e57b183ecc99b3feeb11cb854377a",
+  "format_version": 4,
+  "reference_runtime": {
+    "machine": "x86_64",
+    "python": "3.10.13",
+    "requirements_lock_sha256": "06efd21d3060822f2ffd53e32d1580cea7178e8ba901814c557561db8fc609d8",
+    "system": "Linux"
+  },
+  "safe_parent_manifest_hash": "438315d61afd0530186346f18afa17d5fbc02167665b3380c86d5219b3835619",
   "synthetic_run_summary_hash": "fa849daadc0217d0fec7deb236975f102bed5199078957b234918d7ed9166337"
 }
