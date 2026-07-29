@@ -91,6 +91,64 @@ def report_synthetic_comparison(root: Path) -> int:
     return reported
 
 
+def report_observed_freeze_hashes(root: Path) -> int:
+    from clinical_domain_mortality.hashing import hash_object
+    from clinical_domain_mortality.io import read_json
+    from clinical_domain_mortality.pipeline import (
+        PROJECT_ROOT,
+        _canonical_artifact_hash,
+        _safe_parent_manifest,
+        _safe_run_manifest,
+    )
+
+    expected = read_json(
+        PROJECT_ROOT
+        / "synthetic_data"
+        / "expected_outputs"
+        / "expected_aggregate_hashes.json"
+    )
+    reported = 0
+    for dataset in ("chorus", "mimiciv"):
+        dataset_dir = root / dataset
+        frozen = expected["datasets"][dataset]
+        observed = {
+            relative: _canonical_artifact_hash(dataset_dir / relative)
+            for relative in frozen["artifact_names"]
+        }
+        changed = {
+            relative: digest
+            for relative, digest in observed.items()
+            if digest != frozen["artifact_hashes"].get(relative)
+        }
+        payload = {
+            "changed_artifact_hashes": changed,
+            "safe_run_manifest_hash": hash_object(
+                _safe_run_manifest(read_json(dataset_dir / "run_manifest.json"))
+            ),
+        }
+        _emit(
+            f"Ubuntu freeze hashes: {dataset}",
+            json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        )
+        reported += 1
+    _emit(
+        "Ubuntu freeze hashes: parent",
+        json.dumps(
+            {
+                "safe_parent_manifest_hash": hash_object(
+                    _safe_parent_manifest(read_json(root / "run_manifest.json"))
+                ),
+                "synthetic_run_summary_hash": _canonical_artifact_hash(
+                    root / "synthetic_run_summary.csv"
+                ),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+    return reported + 1
+
+
 def main() -> int:
     report_dir = Path("outputs/test-reports")
     reported = report_junit(report_dir / "pytest-full.xml")
@@ -98,6 +156,7 @@ def main() -> int:
     reported += verify_failed
     if verify_failed:
         reported += report_synthetic_comparison(Path("outputs/synthetic"))
+        reported += report_observed_freeze_hashes(Path("outputs/synthetic"))
     if reported == 0:
         _emit("CI failure", "A prior step failed without a diagnostic report.")
     return 0
