@@ -22,7 +22,7 @@ jobs:
       - run: make test-full
       - run: make synthetic-run
         if: always()
-      - run: make verify 2>&1 | tee outputs/test-reports/verify.log
+      - run: set -o pipefail; make verify 2>&1 | tee outputs/test-reports/verify.log
         if: always()
       - run: make paper-preflight-chorus
         if: always()

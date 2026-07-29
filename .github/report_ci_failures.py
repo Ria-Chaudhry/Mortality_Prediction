@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -41,16 +43,61 @@ def report_junit(path: Path) -> int:
 
 
 def report_log(path: Path) -> int:
-    if not path.is_file() or not path.read_text(encoding="utf-8").strip():
+    if not path.is_file():
         return 0
-    _emit("synthetic verification", path.read_text(encoding="utf-8"))
+    contents = path.read_text(encoding="utf-8").strip()
+    if not contents or '"status": "failed"' not in contents:
+        return 0
+    _emit("synthetic verification", contents)
     return 1
+
+
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def report_synthetic_comparison(root: Path) -> int:
+    reported = 0
+    metric_fields = ("matrix", "model", "auprc", "auroc", "brier", "log_loss")
+    for dataset in ("chorus", "mimiciv"):
+        dataset_dir = root / dataset
+        best = _read_csv(dataset_dir / "best_model_by_matrix.csv")
+        pooled = [
+            {field: row.get(field, "") for field in metric_fields}
+            for row in _read_csv(dataset_dir / "pooled_oof_metrics.csv")
+            if row.get("matrix") in {"baseline", "baseline_all_domains"}
+        ]
+        if not best and not pooled:
+            continue
+        compact_best = [
+            {
+                field: row.get(field, "")
+                for field in ("matrix", "model", "auprc", "auroc", "brier")
+            }
+            for row in best
+        ]
+        _emit(
+            f"Linux synthetic comparison: {dataset}",
+            json.dumps(
+                {"best_models": compact_best, "pooled_reference": pooled},
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+        reported += 1
+    return reported
 
 
 def main() -> int:
     report_dir = Path("outputs/test-reports")
     reported = report_junit(report_dir / "pytest-full.xml")
-    reported += report_log(report_dir / "verify.log")
+    verify_failed = report_log(report_dir / "verify.log")
+    reported += verify_failed
+    if verify_failed:
+        reported += report_synthetic_comparison(Path("outputs/synthetic"))
     if reported == 0:
         _emit("CI failure", "A prior step failed without a diagnostic report.")
     return 0
