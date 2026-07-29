@@ -3,7 +3,7 @@
 ```text
 projected source tables / read-only SQL
         |
-adapter core scan -> candidate acute encounters
+adapter cohort-first relation/scan -> candidate acute encounters
         |
 cohort/patient/time-restricted diagnoses and domain scans
         |
@@ -20,7 +20,9 @@ training-only preprocessing/model -> held-out probabilities + selected-model hel
 OOF fold-identity validation -> aggregate analyses -> classified artifacts
 ```
 
-Only `adapters/` knows physical tables. CHoRUS uses configured projections and SQL predicates.
+Only `adapters/` knows physical tables. CHoRUS uses a server-side eligible-cohort relation,
+configured projections, and SQL cohort/patient/window predicates without cohort-sized parameter
+expansion.
 MIMIC uses Parquet pushdown or projected chunked CSV reads. Common cohort, feature, model,
 evaluation, and audit code consumes standardized frames.
 

@@ -74,8 +74,80 @@ def test_ambiguous_patient_time_link_hard_fails(
     event["patient_id"] = original["patient_id"]
     event["event_datetime"] = original["start_datetime"] + pd.Timedelta(hours=1)
     data.tables["measurements"] = event
-    with pytest.raises(LinkageError):
+    with pytest.raises(LinkageError) as captured:
         prepare_domain_events(data, cohort, chorus_config)
+    assert captured.value.diagnostics.iloc[0]["event_id"] == "AMBIG"
+    assert (
+        captured.value.diagnostics.iloc[0]["linkage_reason"]
+        == "ambiguous_patient_time_match"
+    )
+
+
+def test_explicit_noneligible_visit_never_falls_back_by_patient_time(
+    chorus_data, cohort_result, chorus_config
+):
+    data = deepcopy(chorus_data)
+    eligible = cohort_result.cohort.iloc[0]
+    noneligible = next(
+        visit
+        for visit in data.tables["encounters"]["visit_id"].astype(str)
+        if visit not in set(cohort_result.cohort["visit_id"].astype(str))
+    )
+    event = data.tables["measurements"].iloc[[0]].copy()
+    event["event_id"] = "EXPLICIT-NONELIGIBLE"
+    event["source_visit_id"] = noneligible
+    event["bridge_key"] = pd.NA
+    event["patient_id"] = eligible["patient_id"]
+    event["event_datetime"] = eligible["start_datetime"] + pd.Timedelta(hours=1)
+    data.tables["measurements"] = event
+    prepared = prepare_domain_events(data, cohort_result.cohort, chorus_config)
+    assert "EXPLICIT-NONELIGIBLE" not in set(
+        prepared.events["measurements"]["event_id"]
+    )
+    audit = prepared.restricted_audit.set_index("event_id")
+    assert (
+        audit.loc["EXPLICIT-NONELIGIBLE", "linkage_reason"]
+        == "explicit_visit_outside_eligible_cohort"
+    )
+    assert pd.isna(audit.loc["EXPLICIT-NONELIGIBLE", "linkage_strategy"])
+
+
+def test_missing_explicit_visit_can_use_unambiguous_patient_time(
+    chorus_data, cohort_result, chorus_config
+):
+    data = deepcopy(chorus_data)
+    eligible = cohort_result.cohort.iloc[0]
+    event = data.tables["measurements"].iloc[[0]].copy()
+    event["event_id"] = "MISSING-EXPLICIT"
+    event["source_visit_id"] = pd.NA
+    event["bridge_key"] = pd.NA
+    event["patient_id"] = eligible["patient_id"]
+    event["event_datetime"] = eligible["start_datetime"] + pd.Timedelta(hours=1)
+    data.tables["measurements"] = event
+    prepared = prepare_domain_events(data, cohort_result.cohort, chorus_config)
+    linked = prepared.events["measurements"].set_index("event_id")
+    assert linked.loc["MISSING-EXPLICIT", "linkage_strategy"] == "patient_time"
+
+
+def test_event_reordering_does_not_change_linkage_results(
+    chorus_data, cohort_result, chorus_config
+):
+    first = prepare_domain_events(chorus_data, cohort_result.cohort, chorus_config)
+    reordered = deepcopy(chorus_data)
+    for domain in ("measurements", "medications", "procedures"):
+        reordered.tables[domain] = reordered.tables[domain].sample(
+            frac=1, random_state=19
+        ).reset_index(drop=True)
+    second = prepare_domain_events(reordered, cohort_result.cohort, chorus_config)
+    for domain in ("measurements", "medications", "procedures"):
+        columns = ["event_id", "cohort_visit_number", "linkage_strategy"]
+        expected = first.events[domain][columns].sort_values(
+            "event_id", kind="stable"
+        ).reset_index(drop=True)
+        observed = second.events[domain][columns].sort_values(
+            "event_id", kind="stable"
+        ).reset_index(drop=True)
+        pd.testing.assert_frame_equal(observed, expected)
 
 
 def test_duplicate_source_visit_hard_fails(chorus_data):
@@ -86,3 +158,16 @@ def test_duplicate_source_visit_hard_fails(chorus_data):
     )
     with pytest.raises(SchemaError):
         validate_standardized(data.tables)
+
+
+def test_ambiguous_bridge_key_hard_fails(
+    chorus_data, cohort_result, chorus_config
+):
+    data = deepcopy(chorus_data)
+    duplicate = data.tables["bridge"].iloc[[0]].copy()
+    duplicate["visit_id"] = cohort_result.cohort.iloc[-1]["visit_id"]
+    data.tables["bridge"] = pd.concat(
+        [data.tables["bridge"], duplicate], ignore_index=True
+    )
+    with pytest.raises(LinkageError, match="Bridge keys are ambiguous"):
+        prepare_domain_events(data, cohort_result.cohort, chorus_config)

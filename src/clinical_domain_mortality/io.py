@@ -106,7 +106,7 @@ def write_csv(frame: pd.DataFrame, path: str | Path) -> str:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     temporary = resolved.with_name(f".{resolved.name}.tmp")
-    frame.to_csv(temporary, index=False, lineterminator="\n", float_format="%.17g")
+    frame.to_csv(temporary, index=False, lineterminator="\n", float_format="%.10f")
     temporary.replace(resolved)
     return hash_file(resolved)
 

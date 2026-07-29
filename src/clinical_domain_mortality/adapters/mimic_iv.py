@@ -247,6 +247,7 @@ class MIMICIVAdapter(LocalFileAdapter):
         tables = {
             "patients": patients,
             "encounters": encounters,
+            "prior_encounters": encounters.copy(),
             "deaths": deaths,
             "diagnoses": diagnoses,
             "measurements": measurements,

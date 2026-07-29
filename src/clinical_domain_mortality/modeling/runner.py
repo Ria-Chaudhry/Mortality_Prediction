@@ -18,6 +18,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ..errors import IntegrityError
+from ..hashing import hash_object
 
 
 @dataclass
@@ -73,6 +74,7 @@ def fit_predict_fold(
         "positive_class": 1,
         "classes": classes.astype(int).tolist(),
         "training_only_preprocessing": True,
+        "preprocessing_state_hash": _preprocessing_state_hash(pipeline),
         "hyperparameters": _configured_hyperparameters(model_name, config),
     }
     return FitResult(probabilities, manifest, importance, pipeline)
@@ -149,6 +151,57 @@ def _configured_hyperparameters(
     model_name: str, config: dict[str, Any]
 ) -> dict[str, Any]:
     return dict(config["models"][model_name])
+
+
+def _preprocessing_state_hash(pipeline: Pipeline) -> str:
+    preprocessing = pipeline.named_steps["preprocessing"]
+    state: dict[str, Any] = {"transformers": []}
+    for name, transformer, columns in preprocessing.transformers_:
+        if name == "remainder":
+            continue
+        item: dict[str, Any] = {
+            "name": name,
+            "columns": [str(column) for column in columns],
+        }
+        if name == "numeric":
+            item["imputer_statistics"] = _manifest_values(
+                transformer.statistics_
+            )
+        elif name == "categorical":
+            imputer = transformer.named_steps["imputer"]
+            encoder = transformer.named_steps["one_hot"]
+            item["imputer_statistics"] = _manifest_values(
+                imputer.statistics_
+            )
+            item["encoder_categories"] = [
+                _manifest_values(values) for values in encoder.categories_
+            ]
+        state["transformers"].append(item)
+    state["variance_support"] = (
+        pipeline.named_steps["variance"].get_support().astype(bool).tolist()
+    )
+    scaler = pipeline.named_steps.get("scaler")
+    if scaler is not None:
+        state["scaler_mean"] = _manifest_values(scaler.mean_)
+        state["scaler_scale"] = _manifest_values(scaler.scale_)
+    return hash_object(state)
+
+
+def _manifest_values(values: Any) -> list[Any]:
+    result: list[Any] = []
+    for value in np.asarray(values, dtype=object).tolist():
+        if pd.isna(value):
+            result.append(None)
+        elif isinstance(value, float | np.floating):
+            numeric = float(value)
+            result.append(numeric if np.isfinite(numeric) else str(numeric))
+        elif isinstance(value, int | np.integer):
+            result.append(int(value))
+        elif isinstance(value, bool | np.bool_):
+            result.append(bool(value))
+        else:
+            result.append(str(value))
+    return result
 
 
 def _feature_importance(pipeline: Pipeline, model_name: str) -> pd.DataFrame:
@@ -235,6 +288,48 @@ def validate_oof_predictions(
         ]
         if len(keys) != len(set(keys)):
             raise IntegrityError("Duplicate outer-fold fit manifests")
+        indexed_assignments = assignments.set_index("cohort_visit_number")
+        for item in fit_manifests:
+            fold = int(item["fold"])
+            training = sorted(
+                indexed_assignments.index[
+                    indexed_assignments["fold"].astype(int).ne(fold)
+                ].astype(int)
+            )
+            validation = indexed_assignments.index[
+                indexed_assignments["fold"].astype(int).eq(fold)
+            ].astype(int).tolist()
+            expected_training_hash = hash_object(training)
+            expected_validation_hash = hash_object(validation)
+            if (
+                item.get("training_visit_hash") != expected_training_hash
+                or item.get("preprocessing_fit_partition_hash")
+                != expected_training_hash
+                or item.get("validation_visit_hash") != expected_validation_hash
+            ):
+                raise IntegrityError(
+                    "An outer-fold fit manifest does not match the frozen "
+                    "training/validation partition"
+                )
+            state_hash = item.get("preprocessing_state_hash")
+            if (
+                not isinstance(state_hash, str)
+                or len(state_hash) != 64
+                or any(character not in "0123456789abcdef" for character in state_hash)
+            ):
+                raise IntegrityError(
+                    "An outer-fold fit manifest lacks a valid preprocessing state hash"
+                )
+            training_patients = set(
+                indexed_assignments.loc[training, "patient_id"].astype(str)
+            )
+            validation_patients = set(
+                indexed_assignments.loc[validation, "patient_id"].astype(str)
+            )
+            if training_patients & validation_patients:
+                raise IntegrityError(
+                    "A patient appears in training and validation within an outer fold"
+                )
     assignment_required = {"cohort_visit_number", "patient_id", "fold"}
     assignment_missing = assignment_required - set(assignments)
     if assignment_missing:

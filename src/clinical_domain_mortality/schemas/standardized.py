@@ -58,6 +58,7 @@ def validate_standardized(tables: dict[str, pd.DataFrame]) -> None:
     required_tables = {
         "patients",
         "encounters",
+        "prior_encounters",
         "deaths",
         "diagnoses",
         "measurements",
@@ -71,6 +72,11 @@ def validate_standardized(tables: dict[str, pd.DataFrame]) -> None:
         raise SchemaError(f"Missing standardized tables: {sorted(missing_tables)}")
     for name, columns in STANDARD_COLUMNS.items():
         _require_columns(tables[name], name, columns)
+    _require_columns(
+        tables["prior_encounters"],
+        "prior_encounters",
+        STANDARD_COLUMNS["encounters"],
+    )
     for name in ("measurements", "medications", "procedures"):
         _require_columns(tables[name], name, EVENT_COLUMNS)
     _require_columns(
@@ -80,6 +86,7 @@ def validate_standardized(tables: dict[str, pd.DataFrame]) -> None:
     )
     _require_unique(tables["patients"], "patients", ["patient_id"])
     _require_unique(tables["encounters"], "encounters", ["visit_id"])
+    _require_unique(tables["prior_encounters"], "prior_encounters", ["visit_id"])
     death_precision = tables["deaths"]["death_time_precision"].dropna().astype(str)
     if not death_precision.isin({"datetime", "date"}).all():
         raise SchemaError("deaths contains an unsupported time-precision value")

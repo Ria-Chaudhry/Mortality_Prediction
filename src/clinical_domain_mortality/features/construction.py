@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..errors import IntegrityError
-from ..hashing import hash_frame, hash_object
+from ..hashing import hash_frame, hash_frame_values, hash_object
 from .selection import ConceptSelection, feature_safe_key
 
 
@@ -89,8 +89,9 @@ def build_fold_domain_features(
         full_feature_count=len(full_names),
         selection_audit=audit,
         feature_schema_hash=hash_object(schema_material),
-        feature_value_hash=hash_frame(
-            frame, ["cohort_visit_number", *names]
+        feature_value_hash=hash_frame_values(
+            frame.loc[:, ["cohort_visit_number", *names]],
+            identity_columns=["cohort_visit_number"],
         ),
     )
 
@@ -193,6 +194,7 @@ def _select_derived_features(
             "training_support_proportion",
             "selection_score",
             "tie_break_value",
+            "training_visit_count",
             "support_definition",
             "selected",
             "selection_rule_identifier",

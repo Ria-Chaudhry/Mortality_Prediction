@@ -12,9 +12,11 @@ Artifact classes are:
 Real clinical output defaults to restricted. Publication requires an explicit release approval,
 approved small-cell threshold, allowlisted file/schema, and a manifest record that the
 `public_clinical` gate actually ran and passed. The scanner rejects identity/date
-columns, row predictions or feature values, private paths, usernames, mount/server/connection
-details, credentials, tokens, keys, unexpected schemas, and cells below the approved threshold.
-It logs only finding types and columns, not clinical values.
+columns in CSV or Parquet, nested identifier fields in JSON, row predictions or feature values,
+private paths, usernames, mount/server/connection details, credentials, tokens, keys, unexpected
+files/schemas, and cells below the approved threshold. Positive release is based on exact
+per-artifact schema allowlists, not filenames or text matching alone. It logs only finding types
+and columns, not clinical values.
 
 `measurement_unit_audit.csv` is public for synthetic execution. Clinical unit audits are
 restricted unless small-cell handling and explicit release approval permit an allowlisted copy.

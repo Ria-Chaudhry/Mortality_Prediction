@@ -16,6 +16,7 @@ from ..errors import IntegrityError, LinkageError
 class PreparedEvents:
     events: dict[str, pd.DataFrame]
     audit: pd.DataFrame
+    restricted_audit: pd.DataFrame
 
 
 def prepare_domain_events(
@@ -24,6 +25,7 @@ def prepare_domain_events(
     """Link raw events once, retain only [start, predictor_end), and preserve semantics."""
     prepared: dict[str, pd.DataFrame] = {}
     audits: list[dict[str, Any]] = []
+    restricted_audits: list[pd.DataFrame] = []
     bridge = data.tables["bridge"].copy()
     if not bridge.empty and bridge["bridge_key"].duplicated(keep=False).any():
         duplicates = sorted(bridge.loc[bridge["bridge_key"].duplicated(keep=False), "bridge_key"].unique())
@@ -43,29 +45,44 @@ def prepare_domain_events(
         if source["event_id"].duplicated().any():
             raise IntegrityError(f"{domain} contains duplicate event identifiers")
         _validate_semantics(source, domain, config)
-        linked, audit = _link_one(source, cohort_links, bridge, domain, config)
+        linked, audit, restricted_audit = _link_one(
+            source,
+            cohort_links,
+            bridge,
+            set(data.tables["encounters"]["visit_id"].dropna().astype(str)),
+            domain,
+            config,
+        )
         prepared[domain] = linked.sort_values(
             ["cohort_visit_number", "event_date", "event_datetime", "event_id"],
             kind="stable",
         ).reset_index(drop=True)
         audits.extend(audit)
-    return PreparedEvents(events=prepared, audit=pd.DataFrame(audits))
+        restricted_audits.append(restricted_audit)
+    return PreparedEvents(
+        events=prepared,
+        audit=pd.DataFrame(audits),
+        restricted_audit=pd.concat(restricted_audits, ignore_index=True),
+    )
 
 
 def _link_one(
     source: pd.DataFrame,
     cohort: pd.DataFrame,
     bridge: pd.DataFrame,
+    known_source_visits: set[str],
     domain: str,
     config: dict[str, Any],
-) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+) -> tuple[pd.DataFrame, list[dict[str, Any]], pd.DataFrame]:
     work = source.copy()
     work["row_number"] = range(len(work))
     direct_map = cohort.set_index("visit_id")
     work["cohort_visit_number"] = pd.NA
     work["linkage_strategy"] = pd.NA
+    work["linkage_reason"] = pd.NA
 
-    direct_mask = work["source_visit_id"].notna() & work["source_visit_id"].isin(direct_map.index)
+    explicit_visit = work["source_visit_id"].notna()
+    direct_mask = explicit_visit & work["source_visit_id"].isin(direct_map.index)
     if direct_mask.any():
         direct_rows = work.loc[direct_mask]
         mapped_patient = direct_rows["source_visit_id"].map(direct_map["patient_id"])
@@ -78,8 +95,25 @@ def _link_one(
             direct_map["cohort_visit_number"]
         )
         work.loc[direct_mask, "linkage_strategy"] = "direct_visit"
+        work.loc[direct_mask, "linkage_reason"] = "explicit_eligible_visit"
 
-    remaining = work["cohort_visit_number"].isna()
+    explicit_unlinked = explicit_visit & work["cohort_visit_number"].isna()
+    if explicit_unlinked.any():
+        known = work.loc[explicit_unlinked, "source_visit_id"].astype(str).isin(
+            known_source_visits
+        )
+        work.loc[
+            work.loc[explicit_unlinked].index[known],
+            "linkage_reason",
+        ] = "explicit_visit_outside_eligible_cohort"
+        work.loc[
+            work.loc[explicit_unlinked].index[~known],
+            "linkage_reason",
+        ] = "explicit_visit_unknown"
+
+    # An explicit source encounter is authoritative. Bridge and patient-time
+    # fallback are considered only when the source encounter field is absent.
+    remaining = work["cohort_visit_number"].isna() & ~explicit_visit
     if remaining.any() and not bridge.empty:
         bridge_map = bridge.set_index("bridge_key")["visit_id"]
         bridged_visit = work.loc[remaining, "bridge_key"].map(bridge_map)
@@ -95,8 +129,23 @@ def _link_one(
                 direct_map["cohort_visit_number"]
             )
             work.loc[bridge_mask, "linkage_strategy"] = "approved_bridge"
+            work.loc[bridge_mask, "linkage_reason"] = "approved_bridge_to_eligible_visit"
 
-    remaining_rows = work.loc[work["cohort_visit_number"].isna()]
+    bridge_supplied_unlinked = (
+        work["cohort_visit_number"].isna()
+        & ~explicit_visit
+        & work["bridge_key"].notna()
+    )
+    work.loc[
+        bridge_supplied_unlinked & work["linkage_reason"].isna(),
+        "linkage_reason",
+    ] = "bridge_key_unmatched"
+
+    remaining_rows = work.loc[
+        work["cohort_visit_number"].isna()
+        & ~explicit_visit
+        & work["bridge_key"].isna()
+    ]
     for row in remaining_rows.itertuples():
         if (
             pd.isna(row.patient_id)
@@ -111,13 +160,35 @@ def _link_one(
         ]
         if len(candidates) > 1:
             raise LinkageError(
-                f"{domain} event {row.event_id!r} has ambiguous patient-time linkage"
+                f"{domain} event has ambiguous patient-time linkage",
+                diagnostics=pd.DataFrame(
+                    [
+                        {
+                            "domain": domain,
+                            "event_id": row.event_id,
+                            "source_visit_id": row.source_visit_id,
+                            "bridge_key": row.bridge_key,
+                            "linkage_strategy": "unmatched",
+                            "linkage_reason": "ambiguous_patient_time_match",
+                            "candidate_visit_count": len(candidates),
+                        }
+                    ]
+                ),
             )
         if len(candidates) == 1:
             work.loc[work["row_number"] == row.row_number, "cohort_visit_number"] = int(
                 candidates.iloc[0]["cohort_visit_number"]
             )
             work.loc[work["row_number"] == row.row_number, "linkage_strategy"] = "patient_time"
+            work.loc[
+                work["row_number"] == row.row_number,
+                "linkage_reason",
+            ] = "unambiguous_patient_time_match"
+
+    work.loc[
+        work["cohort_visit_number"].isna() & work["linkage_reason"].isna(),
+        "linkage_reason",
+    ] = "missing_usable_linkage_fields"
 
     linked = work.loc[work["cohort_visit_number"].notna()].copy()
     linked["cohort_visit_number"] = linked["cohort_visit_number"].astype("int64")
@@ -165,7 +236,13 @@ def _link_one(
             - linked.loc[exact_linked, "start_datetime"]
         ).dt.total_seconds() / 3600
     linked = linked.drop(
-        columns=["row_number", "_cohort_patient", "start_datetime", "predictor_end_datetime"]
+        columns=[
+            "row_number",
+            "_cohort_patient",
+            "start_datetime",
+            "predictor_end_datetime",
+            "linkage_reason",
+        ]
     )
     if linked.duplicated(["event_id"]).any():
         raise LinkageError(f"{domain} produced duplicate linked events")
@@ -191,10 +268,42 @@ def _link_one(
             "status": "unmatched",
             "count": int(work["cohort_visit_number"].isna().sum()),
         },
+        *[
+            {
+                "domain": domain,
+                "status": f"unmatched_{reason}",
+                "count": int(count),
+            }
+            for reason, count in work.loc[
+                work["cohort_visit_number"].isna(), "linkage_reason"
+            ].value_counts(dropna=False).sort_index().items()
+        ],
         {"domain": domain, "status": "outside_predictor_window", "count": out_of_window},
         {"domain": domain, "status": "qualifying", "count": len(linked)},
     ]
-    return linked, audit
+    restricted = work[
+        [
+            "event_id",
+            "source_visit_id",
+            "bridge_key",
+            "cohort_visit_number",
+            "linkage_strategy",
+            "linkage_reason",
+        ]
+    ].copy()
+    for column in (
+        "event_id",
+        "source_visit_id",
+        "bridge_key",
+        "linkage_strategy",
+        "linkage_reason",
+    ):
+        restricted[column] = restricted[column].astype("string")
+    restricted["cohort_visit_number"] = restricted[
+        "cohort_visit_number"
+    ].astype("Int64")
+    restricted.insert(0, "domain", domain)
+    return linked, audit, restricted
 
 
 def _validate_semantics(

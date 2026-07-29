@@ -1,5 +1,34 @@
 # Synthetic freeze history
 
+## July 29, 2026 integrity and portability correction
+
+The format-3 freeze replaces cross-runtime raw-byte pins with canonical hashes
+of the actual published tables. Exact raw checksums are still verified inside
+each run. Public floating-point cells are serialized at ten decimal places,
+and the committed comparison preserves file set, column order, row order,
+nonfinite-coordinate semantics, and every value at that published precision.
+
+The reviewed analytical/provenance changes in this freeze are:
+
+- feature-value hashes now preserve row identities and column order;
+- standardized prior encounters keep Charlson lookback data after cohort-first
+  SQL restriction;
+- selection hashes include training-visit counts, and verification recomputes
+  every concept/derived evidence field plus fold feature tables and matrices;
+- model manifests hash frozen fit partitions and fitted preprocessing state;
+- mapping validation publishes schema hashes rather than identifier-bearing
+  column lists;
+- linkage audits distinguish authoritative explicit visits from missing-only
+  bridge/patient-time fallback;
+- run verification enforces the complete artifact set and reruns the recorded
+  privacy classification.
+
+Two clean runs under CPython 3.10.13 and the committed dependency lock produced
+identical raw output hashes, child run IDs, and safe manifests for both
+adapters. Their canonical collection digest was
+`401a13475443749296bd0f232a86d99e2b116b073972850fb8a8157d0f181793`
+across 83 files (41 per dataset plus the overall summary).
+
 ## July 2026 analytical correction
 
 The expected aggregate hashes changed for reviewed reasons:

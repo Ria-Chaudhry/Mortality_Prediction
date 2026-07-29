@@ -82,6 +82,7 @@ class SourceAdapter(ABC):
             ),
             "deterministic_subsample": self.source.get("deterministic_subsample"),
             "observation_mode": self.source.get("observation_mode"),
+            "sql_dialect": self.source.get("sql_dialect"),
             "confirmed": self.source.get("mapping_confirmed"),
         }
         analytical_hashes = {
@@ -114,12 +115,25 @@ class SourceAdapter(ABC):
         for name in ("patients", "encounters", "deaths", "diagnoses"):
             required = STANDARD_COLUMNS[name]
             tables[name] = self._map(raw[name], columns[name], required, name)
+        prior_raw = raw.get("prior_encounters")
+        tables["prior_encounters"] = (
+            self._map(
+                prior_raw,
+                columns["encounters"],
+                STANDARD_COLUMNS["encounters"],
+                "encounters",
+            )
+            if isinstance(prior_raw, pd.DataFrame)
+            else tables["encounters"].copy()
+        )
         for column in ("age_anchor", "age_anchor_year", "anchor_year_group"):
             if column not in tables["patients"]:
                 tables["patients"][column] = pd.NA
         for column in ("race_at_admission", "ethnicity_at_admission"):
             if column not in tables["encounters"]:
                 tables["encounters"][column] = pd.NA
+            if column not in tables["prior_encounters"]:
+                tables["prior_encounters"][column] = pd.NA
         for domain in ("measurements", "medications", "procedures"):
             tables[domain] = self._map(raw[domain], columns[domain], EVENT_COLUMNS, domain)
             tables[domain]["source_table"] = self.source["tables"][domain]
@@ -230,6 +244,11 @@ class SourceAdapter(ABC):
         date_columns = {
             "patients": ["birth_datetime"],
             "encounters": ["start_datetime", "end_datetime", "followup_end_datetime"],
+            "prior_encounters": [
+                "start_datetime",
+                "end_datetime",
+                "followup_end_datetime",
+            ],
             "deaths": ["death_datetime", "death_date"],
             "diagnoses": ["diagnosis_datetime"],
             "measurements": ["event_datetime"],

@@ -7,6 +7,7 @@ analytical modules accept only these standardized frames.
 |---|---|
 | `patients` | `patient_id`, `birth_datetime`, `sex`, `race`, `ethnicity`; optional/common audit fields `age_anchor`, `age_anchor_year`, `anchor_year_group` |
 | `encounters` | `visit_id`, `patient_id`, `start_datetime`, `end_datetime`, `visit_type`, `elective`, `followup_end_datetime`, `race_at_admission`, `ethnicity_at_admission` |
+| `prior_encounters` | Same encounter fields, restricted to eligible patients and the configured lookback where the backend supports pushdown; preserves prior admissions needed for utilization and Charlson without widening the index cohort. |
 | `deaths` | `patient_id`, exact `death_datetime` when available, date-only `death_date`, `death_time_precision`, `death_source`, `death_source_conflict` |
 | `diagnoses` | `diagnosis_id`, `visit_id`, `patient_id`, `diagnosis_datetime`, `code`, `icd_version`, `source_table` |
 | domain event | `event_id`, `source_visit_id`, `bridge_key`, `patient_id`, exact `event_datetime` or date-only `event_date`, `event_time_precision`, `concept_key`, `concept_name`, `value`, `unit`, `source_table`, `semantics` |
@@ -14,17 +15,21 @@ analytical modules accept only these standardized frames.
 | `metadata` | `domain`, `concept_key`, `concept_name`, `source_table`, `semantics`, `unit` |
 
 Patient and visit keys are unique. Event keys are unique without deduplicating multiplicity.
-Linkage precedence is confirmed direct visit, approved bridge, then patient plus time. Direct and
+An explicit source visit is authoritative: if it is eligible it links directly; if it is
+ineligible or unknown it remains unmatched and cannot fall back to another encounter. Only a
+missing explicit visit may use an approved bridge and then unambiguous patient plus time. Direct and
 bridge links must agree with patient identity. Patient-time linkage requires exactly one
-eligible interval; ambiguity hard-fails. Unmatched rows are audited and excluded.
+eligible interval; ambiguity hard-fails with restricted row-level diagnostics. Public audits
+contain aggregate reason counts only.
 
 ## CHoRUS
 
 The configurable OMOP-compatible adapter supports person, visit, death, condition, measurement,
 drug exposure, procedure occurrence, observation, and approved bridge structures. Physical
 tables and every source column come from configuration. SQL uses explicit projections, a
-server-side temporary acute-cohort relation populated in bounded batches, and correlated
-cohort/time predicates. It does not expand one SQL parameter per cohort member. Database URL and
+server-side temporary eligible-cohort relation created from the mapped patient, encounter, and
+death tables, and correlated cohort/time predicates. Prior diagnoses and large domain tables
+join or correlate to that relation. It does not expand one SQL parameter per cohort member. Database URL and
 schema values come from environment variables.
 
 Medication and procedure semantics are preserved per row or configured source. Drug exposure is

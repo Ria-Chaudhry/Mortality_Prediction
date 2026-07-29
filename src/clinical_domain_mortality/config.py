@@ -14,6 +14,16 @@ from .hashing import hash_file, hash_object
 from .runtime import validate_supported_runtime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ATTRITION_STEPS = (
+    "source encounters",
+    "adult age range",
+    "acute encounter type",
+    "non-elective",
+    "short-visit policy",
+    "alive after 24-hour landmark",
+    "verified 30-day follow-up",
+    "deterministic dataset subsample",
+)
 
 
 def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
@@ -109,6 +119,7 @@ def validate_config(config: dict[str, Any]) -> None:
                 raise ConfigurationError(
                     f"Paper mapping hash mismatch for {filename}"
                 )
+        _validate_paper_count_targets(config)
     if not config["source"].get("mapping_confirmed", False):
         raise ConfigurationError("Source mapping must be explicitly confirmed")
     if config["folds"]["count"] != 5:
@@ -173,7 +184,9 @@ def _paper_unresolved_fields(config: dict[str, Any]) -> list[str]:
         ("paper", "shap_method_reconciled"),
         ("paper", "mapping_rules_confirmed"),
         ("paper", "measurement_unit_rules_approved"),
+        ("paper", "expected_attrition_counts"),
         ("paper", "expected_event_counts"),
+        ("paper", "expected_selection_counts"),
         ("paper", "expected_resolved_config_hash"),
     ]
     unresolved: list[str] = []
@@ -199,6 +212,69 @@ def _paper_unresolved_fields(config: dict[str, Any]) -> list[str]:
     for section in ("source", "paper", "frozen_design"):
         _collect_unresolved_markers(config.get(section), section, unresolved)
     return sorted(set(unresolved))
+
+
+def _validate_paper_count_targets(config: dict[str, Any]) -> None:
+    paper = config["paper"]
+    attrition = paper["expected_attrition_counts"]
+    if not isinstance(attrition, dict) or set(attrition) != set(ATTRITION_STEPS):
+        raise ConfigurationError(
+            "paper.expected_attrition_counts must enumerate every implemented "
+            "attrition step"
+        )
+    for step, target in attrition.items():
+        if not isinstance(target, dict) or set(target) != {"visits", "patients"}:
+            raise ConfigurationError(
+                f"Paper attrition target {step!r} must contain visits and patients"
+            )
+    stages = paper.get("expected_event_count_stages")
+    if not isinstance(stages, list) or not stages:
+        raise ConfigurationError(
+            "paper.expected_event_count_stages must be a nonempty list"
+        )
+    expected_event_keys = {
+        f"{domain}.{stage}"
+        for domain in ("measurements", "medications", "procedures")
+        for stage in stages
+    }
+    actual_event_keys = {
+        (
+            str(key)
+            if "." in str(key)
+            else f"{key}.qualifying"
+        )
+        for key in paper["expected_event_counts"]
+    }
+    if actual_event_keys != expected_event_keys:
+        raise ConfigurationError(
+            "paper.expected_event_counts must enumerate every configured "
+            "domain and attrition stage"
+        )
+    expected_selection = {
+        "selected_concepts_per_fold_domain": 50,
+        "selected_features_per_fold_domain": 21,
+        "candidate_measurements": int(
+            config["features"]["measurements"]["constructed_count"]
+        ),
+        "candidate_medications": int(
+            config["features"]["medications"]["constructed_count"]
+        ),
+        "candidate_procedures": int(
+            config["features"]["procedures"]["constructed_count"]
+        ),
+    }
+    if paper["expected_selection_counts"] != expected_selection:
+        raise ConfigurationError(
+            "paper.expected_selection_counts differs from the frozen design"
+        )
+    tolerances = paper.get("expected_count_tolerances")
+    if (
+        not isinstance(tolerances, dict)
+        or int(tolerances.get("default", -1)) < 0
+    ):
+        raise ConfigurationError(
+            "paper.expected_count_tolerances.default must be nonnegative"
+        )
 
 
 def _collect_unresolved_markers(

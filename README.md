@@ -6,8 +6,8 @@ death after a 24-hour landmark and within 30 days of acute-care admission from b
 and early measurement, medication, and procedure records.
 
 The public synthetic execution is tested. Native MIMIC-IV file normalization is tested end to
-end with native-shaped synthetic tables. CHoRUS column-projected SQL construction is regression
-tested, but no protected CHoRUS database is available here. No real-data paper reproduction or
+end with native-shaped synthetic tables. CHoRUS column-projected cohort-first SQL planning is
+regression tested, but no protected CHoRUS database has been accessed. No real-data paper reproduction or
 release-cleared clinical result is included or claimed.
 
 ## Study workflow
@@ -66,7 +66,10 @@ make verify
 
 The MIMIC synthetic run directly consumes official-shaped native tables. Verification pins the
 complete deterministic aggregate artifact set, safe run-manifest fields, schemas, design counts,
-and hashes. Patient-level cohort, feature, fold, event, and OOF files remain under ignored
+and canonical calculation hashes. Public floating-point outputs are serialized at ten decimal
+places; same-run manifests verify exact file bytes, while committed cross-platform pins compare
+those published values under the sole
+supported CPython and dependency lock. Patient-level cohort, feature, fold, event, and OOF files remain under ignored
 `restricted_outputs/`.
 
 Updating expected synthetic outputs is intentionally separate from verification and requires
@@ -81,7 +84,7 @@ make freeze-synthetic-expected
 CHoRUS requires authorized access, a confirmed snapshot identifier, confirmed table/column
 mappings, and approved measurement-unit rules. SQL access is supplied only through named
 environment variables. The adapter selects configured columns, builds a server-side temporary
-acute-cohort relation with bounded bulk inserts, and joins large domains to that relation and
+eligible acute-cohort relation directly from mapped source tables, and joins large domains to that relation and
 their per-encounter predictor windows. It never uses `SELECT *` or a cohort-sized SQL `IN (...)`
 parameter list.
 
@@ -90,6 +93,7 @@ because the snapshot, site mappings, units, top-21 override, event counts, and r
 have not been confirmed:
 
 ```bash
+make paper-preflight-chorus
 make paper-run-chorus
 make verify-paper-chorus
 ```
@@ -119,10 +123,14 @@ old scripts, or local documentation. `configs/mimiciv.paper.yaml` leaves it `UNC
 fails closed; it does not assume v3.1 or “current”:
 
 ```bash
-export MIMICIV_ROOT=/authorized/local/mimic/root
+make paper-preflight-mimiciv
 make paper-run-mimiciv
 make verify-paper-mimiciv
 ```
+
+The preflight commands inspect configuration only and never open a database or clinical source.
+Authorized local deployments supply private roots and credentials through environment variables
+or an ignored override only after every reported blocker is resolved.
 
 ## Predictor window, outcome, and Charlson
 
@@ -146,7 +154,8 @@ successful `public_clinical` scan. An approval flag alone is insufficient. Unit 
 only for synthetic runs by default.
 
 Analytical inputs are hashed from canonical, cohort-restricted values, not only schemas and row
-counts. Manifests distinguish `feature_schema_hash` from `feature_value_hash` or
+counts. Fit manifests also hash the exact frozen training, validation, and preprocessing-fit
+partitions and the fitted imputation/encoding/variance/scaling state. Manifests distinguish `feature_schema_hash` from `feature_value_hash` or
 `feature_matrix_hash`. The latter changes when any row identity, column order, or feature value
 changes without exposing those values.
 
@@ -158,8 +167,10 @@ See [`SECURITY_AND_PRIVACY.md`](SECURITY_AND_PRIVACY.md) and
 The synthetic implementation, both adapters, leakage barriers, deterministic selection, and
 aggregate calculations are testable from a clean clone. Exact CHoRUS and MIMIC manuscript results
 require the unavailable authorized snapshots and confirmed local decisions. A count mismatch
-writes attrition, expected-versus-observed counts, and a failed diagnostic manifest before
-stopping. Paper verification also requires manuscript reconciliation and release clearance.
+writes attrition plus final, attrition-stage, event-stage, or fold/domain selection comparisons
+and a failed diagnostic manifest before stopping. Paper verification recomputes the actual
+top-50/top-21 evidence, OOF fold identity, and matrix hashes; it also requires manuscript
+reconciliation and a completed `public_clinical` release gate.
 
 Selected models additionally receive held-out permutation-SHAP analysis using an outer-training
 background. Only fold-level mean absolute SHAP and cross-fold aggregate tables are written; the

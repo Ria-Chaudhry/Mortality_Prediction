@@ -22,6 +22,7 @@ class CohortResult:
     attrition: pd.DataFrame
     cohort_hash: str
     row_order_hash: str
+    count_comparison: pd.DataFrame
 
 
 def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult:
@@ -152,6 +153,9 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
 
     frame = _mimic_subsample(frame, config)
     _record(attrition, "deterministic dataset subsample", frame)
+    server_attrition = data.audit.get("server_side_cohort_attrition")
+    if isinstance(server_attrition, list) and server_attrition:
+        attrition = server_attrition
     if frame["visit_id"].duplicated().any():
         raise IntegrityError("Eligible cohort has duplicate visit identifiers")
 
@@ -159,35 +163,35 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
         ["start_datetime", "patient_id", "visit_id"], kind="stable"
     ).reset_index(drop=True)
     frame.insert(0, "cohort_visit_number", np.arange(1, len(frame) + 1, dtype=np.int64))
-    prior = _prior_features(frame, encounters, data.tables["diagnoses"], rules, config)
+    prior = _prior_features(
+        frame,
+        data.tables.get("prior_encounters", encounters),
+        data.tables["diagnoses"],
+        rules,
+        config,
+    )
     frame = frame.merge(prior, on="cohort_visit_number", validate="one_to_one", how="left")
     for column in ("prior_visit_count", "prior_acute_visit_count", "prior_charlson_score"):
         frame[column] = frame[column].fillna(0).astype("int64")
     frame["prior_visit_indicator"] = (frame["prior_visit_count"] > 0).astype("int8")
 
+    count_comparison = pd.DataFrame()
     expected = rules.get("expected_counts")
     if (config.get("paper_run") or rules.get("enforce_expected_counts")) and expected:
-        observed = {
-            "visits": len(frame),
-            "patients": int(frame["patient_id"].nunique()),
-            "deaths": int(frame["outcome"].sum()),
-        }
-        if observed != expected:
-            comparison = pd.DataFrame(
-                [
-                    {
-                        "measure": name,
-                        "expected": int(expected[name]),
-                        "observed": int(observed[name]),
-                        "matches": bool(expected[name] == observed[name]),
-                    }
-                    for name in ("visits", "patients", "deaths")
-                ]
-            )
+        count_comparison = _cohort_count_comparison(
+            frame, attrition, config, expected
+        )
+        if not count_comparison["matches"].all():
+            observed = {
+                row.measure: int(row.observed)
+                for row in count_comparison.loc[
+                    count_comparison["category"].eq("final_cohort")
+                ].itertuples(index=False)
+            }
             raise CountMismatchError(
                 f"Paper cohort count mismatch: expected={expected}, observed={observed}",
                 attrition=pd.DataFrame(attrition),
-                comparison=comparison,
+                comparison=count_comparison,
             )
 
     baseline_columns = [
@@ -232,6 +236,7 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
         attrition=pd.DataFrame(attrition),
         cohort_hash=cohort_hash,
         row_order_hash=row_hash,
+        count_comparison=count_comparison,
     )
 
 
@@ -243,6 +248,112 @@ def _record(attrition: list[dict[str, Any]], step: str, frame: pd.DataFrame) -> 
             "patients": int(frame["patient_id"].nunique()) if "patient_id" in frame else 0,
         }
     )
+
+
+def _cohort_count_comparison(
+    frame: pd.DataFrame,
+    attrition: list[dict[str, Any]],
+    config: dict[str, Any],
+    expected_final: dict[str, Any],
+) -> pd.DataFrame:
+    """Compare final and, in paper mode, every configured attrition count."""
+    default_tolerance = int(
+        config.get("paper", {})
+        .get("expected_count_tolerances", {})
+        .get("default", 0)
+    )
+    observed_final = {
+        "visits": len(frame),
+        "patients": int(frame["patient_id"].nunique()),
+        "deaths": int(frame["outcome"].sum()),
+    }
+    rows: list[dict[str, Any]] = []
+    for measure in ("visits", "patients", "deaths"):
+        expected, tolerance = _count_target(
+            expected_final[measure], default_tolerance
+        )
+        observed = observed_final[measure]
+        rows.append(
+            _count_row(
+                "final_cohort",
+                "final eligible cohort",
+                measure,
+                expected,
+                observed,
+                tolerance,
+            )
+        )
+
+    if config.get("paper_run"):
+        expected_attrition = config.get("paper", {}).get(
+            "expected_attrition_counts"
+        )
+        if not isinstance(expected_attrition, dict):
+            raise IntegrityError(
+                "Paper attrition expectations must enumerate every attrition step"
+            )
+        observed_attrition = {str(row["step"]): row for row in attrition}
+        missing = sorted(set(observed_attrition) - set(expected_attrition))
+        unexpected = sorted(set(expected_attrition) - set(observed_attrition))
+        if missing or unexpected:
+            raise IntegrityError(
+                "Paper attrition expectations do not match implemented stages: "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+        for step, observed_row in observed_attrition.items():
+            target = expected_attrition[step]
+            if not isinstance(target, dict):
+                raise IntegrityError(
+                    f"Paper attrition expectation for {step!r} must be a mapping"
+                )
+            for measure in ("visits", "patients"):
+                if measure not in target:
+                    raise IntegrityError(
+                        f"Paper attrition expectation for {step!r} lacks {measure}"
+                    )
+                expected, tolerance = _count_target(
+                    target[measure], default_tolerance
+                )
+                rows.append(
+                    _count_row(
+                        "attrition",
+                        step,
+                        measure,
+                        expected,
+                        int(observed_row[measure]),
+                        tolerance,
+                    )
+                )
+    return pd.DataFrame(rows)
+
+
+def _count_target(value: Any, default_tolerance: int) -> tuple[int, int]:
+    if isinstance(value, dict):
+        if "expected" not in value:
+            raise IntegrityError("Count target mapping lacks expected")
+        return int(value["expected"]), int(value.get("tolerance", default_tolerance))
+    return int(value), default_tolerance
+
+
+def _count_row(
+    category: str,
+    stage: str,
+    measure: str,
+    expected: int,
+    observed: int,
+    tolerance: int,
+) -> dict[str, Any]:
+    difference = abs(observed - expected)
+    return {
+        "category": category,
+        "stage": stage,
+        "measure": measure,
+        "expected": expected,
+        "observed": observed,
+        "absolute_difference": difference,
+        "tolerance": tolerance,
+        "matches": difference <= tolerance,
+    }
 
 
 def _mimic_subsample(frame: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:

@@ -78,6 +78,38 @@ def test_native_mimic_fixture_loads_official_fields(mimic_config):
     assert result.audit["cohort_first_candidate_hadm_count"] == 2
 
 
+def test_native_death_and_procedure_rules_enter_mapping_hash(mimic_config):
+    config = native_config(mimic_config)
+    adapter = MIMICIVAdapter(config)
+    loaded = adapter.load()
+    baseline = loaded.mapping_hash
+    death_changed = deepcopy(config)
+    death_changed["source"]["native"]["death_rule"][
+        "identifier"
+    ] = "different-death-rule"
+    procedure_changed = deepcopy(config)
+    procedure_changed["source"]["native"][
+        "procedure_date_rule"
+    ] = "different-procedure-rule"
+    source_rows = {
+        name: len(frame)
+        for name, frame in loaded.tables.items()
+        if name != "metadata"
+    }
+    assert (
+        MIMICIVAdapter(death_changed)._finalize_standardized(
+            deepcopy(loaded.tables), source_rows
+        ).mapping_hash
+        != baseline
+    )
+    assert (
+        MIMICIVAdapter(procedure_changed)._finalize_standardized(
+            deepcopy(loaded.tables), source_rows
+        ).mapping_hash
+        != baseline
+    )
+
+
 def test_native_mimic_requires_explicit_medication_concept(mimic_config):
     config = native_config(mimic_config)
     config["source"]["native"]["medication_concept_field"] = "UNCONFIRMED"
@@ -123,13 +155,24 @@ def test_precise_deathtime_is_never_overridden_by_midnight_dod(mimic_config):
             "race": ["WHITE"],
         }
     )
-    _patients, _encounters, deaths = adapter._native_core(
+    patients_standard, encounters_standard, deaths = adapter._native_core(
         patients, admissions, config["source"]["native"]
     )
     assert deaths.iloc[0]["death_datetime"] == pd.Timestamp("2020-01-02 10:00:00")
     assert deaths.iloc[0]["death_time_precision"] == "datetime"
     assert deaths.iloc[0]["death_source"] == "admissions.deathtime"
     assert not bool(deaths.iloc[0]["death_source_conflict"])
+    data = MIMICIVAdapter(config).load()
+    data.tables["patients"] = patients_standard
+    data.tables["encounters"] = encounters_standard
+    data.tables["prior_encounters"] = encounters_standard.copy()
+    data.tables["deaths"] = deaths
+    cohort = build_cohort(data, config).cohort
+    assert len(cohort) == 1
+    assert int(cohort.iloc[0]["outcome"]) == 1
+    assert (
+        cohort.iloc[0]["death_datetime"] - cohort.iloc[0]["start_datetime"]
+    ) == pd.Timedelta(hours=26)
 
 
 @pytest.mark.parametrize(
@@ -197,6 +240,39 @@ def test_date_only_procedure_rule_includes_calendar_dates_spanned(mimic_config):
         "icd10:FOLLOWING",
     }
     assert procedures["hours_from_start"].isna().all()
+
+
+def test_date_only_procedure_rule_for_admission_crossing_midnight(
+    mimic_config,
+):
+    config = native_config(mimic_config)
+    data = MIMICIVAdapter(config).load()
+    data.tables["encounters"].loc[
+        data.tables["encounters"]["visit_id"].eq("2001"),
+        ["start_datetime", "end_datetime", "followup_end_datetime"],
+    ] = [
+        pd.Timestamp("2020-01-01 23:30:00"),
+        pd.Timestamp("2020-01-04"),
+        pd.Timestamp("2020-02-02"),
+    ]
+    data.tables["prior_encounters"] = data.tables["encounters"].copy()
+    raw = pd.DataFrame(
+        {
+            "subject_id": ["1001"] * 4,
+            "hadm_id": ["2001"] * 4,
+            "seq_num": [1, 2, 3, 4],
+            "chartdate": ["2020-01-01", "2020-01-02", "2020-01-03", None],
+            "icd_code": ["ADMISSION", "NEXT", "OUTSIDE", "MISSING"],
+            "icd_version": [10, 10, 10, 10],
+        }
+    )
+    data.tables["procedures"] = MIMICIVAdapter._native_procedures(raw, "coded")
+    cohort = build_cohort(data, config)
+    prepared = prepare_domain_events(data, cohort.cohort, config)
+    assert set(prepared.events["procedures"]["concept_key"]) == {
+        "icd10:ADMISSION",
+        "icd10:NEXT",
+    }
 
 
 def test_duplicate_date_only_procedures_get_deterministic_unique_keys(mimic_config):

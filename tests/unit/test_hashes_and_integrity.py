@@ -51,3 +51,27 @@ def test_feature_schema_and_value_hashes_have_honest_meanings():
     assert hash_frame_values(
         frame, identity_columns=["cohort_visit_number"]
     ) != hash_frame_values(reordered, identity_columns=["cohort_visit_number"])
+    renamed = frame.rename(columns={"feature": "renamed_feature"})
+    changed_dtype = frame.astype({"feature": "float32"})
+    changed_identity = frame.copy()
+    changed_identity["cohort_visit_number"] = [2, 1]
+    reordered_rows = frame.iloc[::-1].reset_index(drop=True)
+    added = frame.assign(another_feature=[0.0, 0.0])
+    removed = frame[["cohort_visit_number"]]
+    baseline_hash = hash_frame_values(
+        frame, identity_columns=["cohort_visit_number"]
+    )
+    for changed_frame in (
+        renamed,
+        changed_dtype,
+        changed_identity,
+        reordered_rows,
+        added,
+        removed,
+    ):
+        assert baseline_hash != hash_frame_values(
+            changed_frame, identity_columns=["cohort_visit_number"]
+        )
+    assert baseline_hash == hash_frame_values(
+        frame.copy(), identity_columns=["cohort_visit_number"]
+    )

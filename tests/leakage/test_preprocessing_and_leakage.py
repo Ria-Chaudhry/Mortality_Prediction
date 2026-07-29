@@ -6,6 +6,7 @@ import pytest
 
 from clinical_domain_mortality.errors import IntegrityError, LeakageError
 from clinical_domain_mortality.features.validation import assert_no_forbidden_features
+from clinical_domain_mortality.hashing import hash_object
 from clinical_domain_mortality.modeling import fit_predict_fold, validate_oof_predictions
 
 
@@ -17,6 +18,30 @@ def test_imputation_and_scaling_fit_training_only(chorus_config):
     imputer = fit.pipeline.named_steps["preprocessing"].named_transformers_["numeric"]
     assert imputer.statistics_[0] == 3.0
     assert fit.manifest["training_only_preprocessing"] is True
+    repeated = fit_predict_fold(
+        x_train,
+        y,
+        x_validation,
+        "logistic_regression",
+        chorus_config,
+    )
+    changed_training = x_train.copy()
+    changed_training.loc[0, "numeric"] = 101.0
+    changed = fit_predict_fold(
+        changed_training,
+        y,
+        x_validation,
+        "logistic_regression",
+        chorus_config,
+    )
+    assert (
+        fit.manifest["preprocessing_state_hash"]
+        == repeated.manifest["preprocessing_state_hash"]
+    )
+    assert (
+        fit.manifest["preprocessing_state_hash"]
+        != changed.manifest["preprocessing_state_hash"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -97,6 +122,57 @@ def test_swapped_valid_looking_oof_fold_labels_hard_fail(cohort_result):
     with pytest.raises(IntegrityError, match="frozen fold"):
         validate_oof_predictions(
             predictions, cohort, assignments, ["baseline"], ["m"]
+        )
+
+
+def test_fit_partition_hash_must_match_frozen_fold_assignment():
+    cohort = pd.DataFrame(
+        {
+            "cohort_visit_number": [1, 2],
+            "patient_id": ["p1", "p2"],
+        }
+    )
+    assignments = cohort.assign(fold=[0, 1])
+    predictions = pd.DataFrame(
+        {
+            "cohort_visit_number": [1, 2],
+            "matrix": ["baseline", "baseline"],
+            "model": ["m", "m"],
+            "fold": [0, 1],
+            "probability": [0.2, 0.8],
+        }
+    )
+    manifests = [
+        {
+            "fold": fold,
+            "matrix": "baseline",
+            "model": "m",
+            "training_visit_hash": hash_object([2 if fold == 0 else 1]),
+            "validation_visit_hash": hash_object([1 if fold == 0 else 2]),
+            "preprocessing_fit_partition_hash": hash_object(
+                [2 if fold == 0 else 1]
+            ),
+            "preprocessing_state_hash": "0" * 64,
+        }
+        for fold in (0, 1)
+    ]
+    validate_oof_predictions(
+        predictions,
+        cohort,
+        assignments,
+        ["baseline"],
+        ["m"],
+        manifests,
+    )
+    manifests[0]["preprocessing_fit_partition_hash"] = hash_object([1])
+    with pytest.raises(IntegrityError, match="training/validation partition"):
+        validate_oof_predictions(
+            predictions,
+            cohort,
+            assignments,
+            ["baseline"],
+            ["m"],
+            manifests,
         )
 
 

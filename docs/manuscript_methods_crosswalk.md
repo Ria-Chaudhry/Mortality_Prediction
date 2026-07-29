@@ -8,7 +8,7 @@
 | Prior utilization | 365-day lookback | `_prior_features` | restricted baseline |
 | Versioned prior-only Charlson | algorithm/version/hash | `cohort/charlson.py` | baseline, config/mapping manifest |
 | Five patient folds | count/seed | `cohort/folds.py`, stage 3 | fold summary/hash/assignments |
-| Direct/bridge/patient-time linkage | adapter mapping | `features/linkage.py` | linkage audit |
+| Authoritative direct/missing-only bridge and patient-time linkage | adapter mapping | `features/linkage.py` | public aggregate plus restricted reason audit |
 | Outer-training top 50 | count/rank/tie | `features/selection.py` | concept selections/hashes |
 | 300/104/103 candidate features | domain definitions | `features/construction.py` | constructed count |
 | Final outer-training 21 columns | support proportion/construction-order tie | construction | all-candidate selection table; 21 selected/domain/fold |
@@ -29,8 +29,8 @@
 | Calibration table | selected calibration | stage 8 | calibration table |
 | Held-out SHAP | permutation/training background/held-out sample | `modeling/shap_analysis.py` | restricted fold aggregate and safe cross-fold summary |
 | Plot inputs | saved numerical coordinates | stage 8 | ROC/calibration/decision CSVs; no plots |
-| Paper counts | paper YAML only | builder | comparison and failed manifest on mismatch |
-| Paper reconciliation/release | paper YAML/governance | `verify_paper_run` | fail-closed verification status |
+| Paper cohort/attrition/event/selection counts | paper YAML only | builder/pipeline gates | stage comparisons and failed manifest on mismatch |
+| Paper reconciliation/release | paper YAML/governance | nonconnecting preflight and `verify_paper_run` | recomputed restricted evidence plus actual `public_clinical` gate |
 
 The completed MIMIC scripts and maintained manuscript disagree on the selection rule, concept
 count for medications, and measurement feature count. Paper configurations fail closed pending

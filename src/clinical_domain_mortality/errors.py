@@ -20,6 +20,10 @@ class LeakageError(PipelineError):
 class LinkageError(PipelineError):
     """An event cannot be linked safely and uniquely."""
 
+    def __init__(self, message, *, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
 
 class IntegrityError(PipelineError):
     """Rows, folds, features, probabilities, or hashes are inconsistent."""

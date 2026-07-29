@@ -13,6 +13,7 @@ from .config import load_config
 from .errors import PipelineError
 from .pipeline import (
     freeze_synthetic_expected,
+    paper_preflight,
     run_pipeline,
     synthetic_run,
     verify_paper_run,
@@ -53,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_paper.add_argument("--config", required=True, type=Path)
     verify_paper.add_argument("--run-dir", required=True, type=Path)
+
+    preflight = subparsers.add_parser(
+        "paper-preflight",
+        help="Report unresolved paper-mode facts without accessing clinical data",
+    )
+    preflight.add_argument("--config", required=True, type=Path)
 
     stage = subparsers.add_parser("stage", help="Run through a numbered auditable stage")
     stage.add_argument("--stage", required=True, type=int, choices=range(1, 9))
@@ -110,6 +117,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "verify-paper":
             payload = verify_paper_run(args.config, args.run_dir)
+        elif args.command == "paper-preflight":
+            payload = paper_preflight(args.config)
         elif args.command == "stage":
             result = run_pipeline(
                 args.config,

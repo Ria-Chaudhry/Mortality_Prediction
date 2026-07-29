@@ -8,6 +8,9 @@ Canonical hashes cover analytical values, source snapshot identifiers, configura
 cohort order, folds, concept/derived selections, feature schemas/values, matrices, and outputs.
 Fixed ordering and seeds govern folds, ties, estimators, top-risk groups, and bootstrap samples.
 Timestamps, machine paths, and Git dirty state are excluded from canonical synthetic equality.
+Raw serialization hashes remain enforced within each run but are excluded from the committed
+cross-platform manifest; public numeric tables are serialized and canonically compared at ten
+decimal places.
 Frozen aggregate verification supports CPython 3.10.13 exactly; unsupported runtimes fail before
 execution rather than producing a misleading cross-runtime manifest mismatch.
 

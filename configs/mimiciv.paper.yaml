@@ -66,7 +66,18 @@ paper:
   charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1
   charlson_mapping_version: quan-2005-charlson-icd9cm-icd10cm-v1
   expected_counts: {visits: 23000, patients: 10009, deaths: 819}
+  expected_attrition_counts: UNCONFIRMED
   expected_event_counts: UNCONFIRMED
+  expected_event_count_stages:
+    [source, linked_direct, linked_bridge, linked_patient_time, unmatched,
+     outside_predictor_window, qualifying]
+  expected_selection_counts:
+    selected_concepts_per_fold_domain: 50
+    selected_features_per_fold_domain: 21
+    candidate_measurements: 300
+    candidate_medications: 104
+    candidate_procedures: 103
+  expected_count_tolerances: {default: 0}
   expected_resolved_config_hash: UNCONFIRMED
   mapping_file_hashes:
     mimic_mapping.csv: 7a25e22c56f073ad2086095d2ce70ad04298f92697793a17784ddec3d361df0d
