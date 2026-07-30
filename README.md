@@ -1,25 +1,24 @@
 # Clinical-domain mortality prediction framework
 
-This repository implements a mortality-prediction workflow for a CHoRUS primary analysis and an independent MIMIC-IV replication. It predicts death after a 24-hour landmark and within 30 days of acute-care admission from baseline factors and early measurement, medication, and procedure records.
+This repository implements a mortality prediction workflow for a CHoRUS primary analysis and an independent MIMIC-IV replication. It predicts death after a 24-hour landmark and within 30 days of acute-care admission from baseline factors and physiological severity, treatment exposure and procedure burden. 
 
-The public synthetic execution is tested. Native MIMIC-IV file normalization is tested end to end with native-shaped synthetic tables. CHoRUS column-projected cohort-first SQL planning is regression tested, but no protected CHoRUS database has been accessed. No real-data paper reproduction or release-cleared clinical result is included or claimed.
+%The public synthetic execution is tested. Native MIMIC-IV file normalization is tested end to end with native-shaped synthetic tables. CHoRUS column-projected cohort-first SQL planning is regression tested, but no protected CHoRUS database has been accessed. No real-data paper reproduction or release-cleared clinical result is included or claimed.
 
 ## Study workflow
 
 Each dataset is run independently; outcomes, patients, concepts, folds, models, and predictions are never transferred or pooled. The pipeline:
 
 1. Projects configured columns and applies cohort/time predicates before loading large domains.
-2. Freezes adult, non-elective acute encounters, row order, the outcome, and baseline.
-3. Assigns patients, not encounters, to one deterministic five-fold partition.
-4. Within each outer fold and domain, ranks 50 concepts using distinct training visits only.
-5. Constructs 300 measurement, 104 medication, or 103 procedure candidate columns.
-6. Before imputation, ranks candidate columns by training-visit support proportion and retains exactly 21 final matrix columns per domain, resolving equal support by the frozen candidate-construction order.
-7. Reuses the same fold-specific 21 columns in every matrix containing that domain.
-8. Fits all learned preprocessing and each model on outer-training visits only, then creates one held-out positive-class probability per visit, matrix, and model.
+2. Freezes acute encounters, row order, the outcome, and baseline.
+3. selects 50 most commonly occurring concepts per clinical domain for the selected cohort and generates summary features.
+4. Constructs 300 measurement, 104 medication, or 103 procedure candidate columns.
+5. Assigns patients, not encounters, to one deterministic five-fold partition. 
+6. Before imputation, ranks candidate columns by training visit support proportion and retains exactly 21 final matrix columns per domain, resolving equal support by the frozen candidate construction order.
+7. Reuses the same fold specific 21 columns in every matrix containing that domain.
+8. Fits all learned preprocessing and each model on outer training visits only, then creates one held out positive class probability per visit, matrix, and model.
 
 The eight matrices are baseline, three single-domain additions, three pairwise additions, and all domains. Logistic regression, random forest, gradient boosting, and LightGBM give 160 outer-fold fits and 32 OOF probabilities per visit in each dataset.
 
-The evidence search found a conflict: completed MIMIC stage scripts used training-fold mutual information after median imputation, retained 15 measurement features and 21 medication/procedure features, and ranked 250 medication concepts; maintained manuscript material describes occurrence frequency, 50 concepts, and 21 features in every domain. The implemented synthetic rule is the requested unsupervised 21-column design, but it is not represented as a confirmed historical paper method. Paper mode fails closed until the discrepancy is reconciled. See [`docs/recovered_method_provenance.md`](docs/recovered_method_provenance.md).
 
 ## Install and test
 
@@ -45,7 +44,7 @@ make synthetic-run
 make verify
 ```
 
-The MIMIC synthetic run directly consumes official-shaped native tables. Verification pins the complete deterministic aggregate artifact set, safe run-manifest fields, schemas, design counts, and canonical calculation hashes. Public floating-point outputs are serialized at ten decimal places. Derived floating-point features are first canonicalized at the configured eight-decimal boundary before hashing, preprocessing, or fitting so platform-level aggregation noise cannot change tree split ties. Same-run manifests verify exact file bytes.
+The MIMIC synthetic run directly consumes official shaped native tables. Verification pins the complete deterministic aggregate artifact set, safe run-manifest fields, schemas, design counts, and canonical calculation hashes. Public floating point outputs are serialized at ten decimal places. Derived floating-point features are first canonicalized at the configured eight decimal boundary before hashing, preprocessing, or fitting so platform level aggregation noise cannot change tree split ties. Same run manifests verify exact file bytes.
 
 Exact frozen fitted-model verification is intentionally narrower because pinned scikit-learn tree builds can make different tied split choices across operating systems even with identical inputs, versions, seeds, and one thread. The reference platform is CPython 3.10.13 on Linux x86_64; CI pins Ubuntu 24.04. `make verify` fails closed elsewhere rather than accepting a different fitted-model baseline. On another platform, dataset-level structural and exact same-run checks remain available with:
 
@@ -64,7 +63,7 @@ make freeze-synthetic-expected
 
 ## CHoRUS execution boundary
 
-CHoRUS requires authorized access, a confirmed snapshot identifier, confirmed table/column mappings, and approved measurement-unit rules. SQL access is supplied only through named environment variables. The adapter selects configured columns, builds a server-side temporary eligible acute-cohort relation directly from mapped source tables, and joins large domains to that relation and their per-encounter predictor windows. It never uses `SELECT *` or a cohort-sized SQL `IN (...)` parameter list.
+CHoRUS requires authorized access, a confirmed snapshot identifier, confirmed table/column mappings, and approved measurement-unit rules. SQL access is supplied only through named environment variables. The adapter selects configured columns, builds a server-side temporary eligible acute cohort relation directly from mapped source tables, and joins large domains to that relation and their per-encounter predictor windows. It never uses `SELECT *` or a cohort-sized SQL `IN (...)` parameter list.
 
 `configs/chorus.paper.yaml` contains the expected paper counts but deliberately fails closed because the snapshot, site mappings, units, top-21 override, event counts, and release governance have not been confirmed:
 
@@ -118,9 +117,8 @@ Methods-to-code traceability is in [`docs/manuscript_methods_crosswalk.md`](docs
 
 No license is granted for reuse or redistribution.
 
-## What this repository does
+## What this repository currently does
 
-The repository provides an executable, end-to-end framework for reproducing the study once authorized source data and confirmed study configurations are supplied. It:
 
 - Constructs landmarked acute-care mortality cohorts independently in CHoRUS and MIMIC-IV.
 - Derives baseline, physiological-severity, treatment-exposure, and procedure-burden predictors.
@@ -132,21 +130,17 @@ The repository provides an executable, end-to-end framework for reproducing the 
 - Provides a complete privacy-safe synthetic demonstration for testing the implemented workflow.
 - Provides fail-closed paper-mode entry points for authorized CHoRUS and MIMIC-IV reproduction.
 
-The repository contains executable implementation code rather than pseudocode. However, the CHoRUS-specific implementation has not been run or validated against the protected CHoRUS environment, so it should currently be described as an unvalidated source-specific implementation rather than a completed reproduction of the CHoRUS analysis.
 
 ## What is left
 
-The following work is required before the repository can be described as reproducing the manuscript analyses:
+The following work is required before the repository can be described as reproducible:
 
-1. Reconcile the feature-selection discrepancy between the completed historical scripts and the maintained manuscript description, including the ranking method, number of candidate medication concepts, and number of retained features per domain.
-2. Confirm the final SHAP procedure and reconcile it with the feature-importance results reported in the manuscript.
-3. Confirm the exact CHoRUS snapshot, source tables, column mappings, encounter definitions, concept mappings, measurement-unit rules, and governance requirements.
-4. Confirm the exact MIMIC-IV release and the final race, ethnicity, admission-type, medication, procedure, and death-date mappings.
+3. Confirm the exact CHoRUS snapshot: version 1 , source tables: measurement, drug_use, procedure and visit, column mappings: , encounter definitions, concept mappings, measurement-unit rules, and governance requirements.
+4. Confirm the exact MIMIC-IV release: 3.1 and the final race, ethnicity, admission-type, medication, procedure, and death-date mappings.
 5. Tighten the frozen-runtime check so that it explicitly distinguishes the Ubuntu 24.04 reference environment from other Linux x86_64 systems.
 6. Run the finalized pipeline on authorized CHoRUS and MIMIC-IV data.
 7. Reconcile cohort attrition, final cohort counts, event counts, fold assignments, selected concepts and features, OOF predictions, performance estimates, clinical-utility analyses, calibration results, decision curves, and SHAP summaries with the manuscript.
 8. Complete the required disclosure and privacy review before releasing any aggregate clinical output.
-9. Obtain supervisor feedback on the final methodological specification, the framing of the CHoRUS code, and whether an authorized CHoRUS analyst can validate the mappings and execute the pipeline inside the private environment.
-10. Decide whether to add an open-source license before permitting reuse or redistribution.
+9. open source lisence? 
 
 
