@@ -348,7 +348,7 @@ FROM verified_stage AS s
             + "\nUNION ALL\n".join(
                 [
                     attrition_count(1, "source encounters", "source_stage"),
-                    attrition_count(2, "adult age range", "adult_stage"),
+                    attrition_count(2, "configured age range", "adult_stage"),
                     attrition_count(3, "acute encounter type", "acute_stage"),
                     attrition_count(4, "non-elective", "non_elective_stage"),
                     attrition_count(5, "short-visit policy", "short_stage"),

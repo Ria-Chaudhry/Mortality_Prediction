@@ -4,6 +4,7 @@ from copy import deepcopy
 
 import pandas as pd
 import pytest
+from sklearn.model_selection import StratifiedGroupKFold
 
 from clinical_domain_mortality.cohort import build_cohort, create_patient_folds
 from clinical_domain_mortality.features import prepare_domain_events
@@ -27,6 +28,20 @@ def test_short_visits_retained_and_window_ends_at_discharge(cohort_result):
     short = cohort_result.cohort.loc[cohort_result.cohort["short_visit"]]
     assert not short.empty
     assert short["predictor_end_datetime"].equals(short["end_datetime"])
+
+
+def test_admission_plus_window_policy_does_not_use_early_discharge(
+    chorus_data, chorus_config
+):
+    config = deepcopy(chorus_config)
+    config["cohort"]["predictor_window_end_policy"] = "admission_plus_window_v1"
+    cohort = build_cohort(chorus_data, config).cohort
+    short = cohort.loc[cohort["short_visit"]]
+    assert not short.empty
+    assert short["predictor_end_datetime"].equals(
+        short["configured_predictor_end_datetime"]
+    )
+    assert (short["predictor_end_datetime"] > short["end_datetime"]).all()
 
 
 def test_charlson_uses_prior_encounters_only(cohort_result):
@@ -57,6 +72,39 @@ def test_fold_assignment_is_deterministic(cohort_result, chorus_config, fold_res
     right = repeated.assignments.sort_values("cohort_visit_number").reset_index(drop=True)
     pd.testing.assert_frame_equal(left, right)
     assert repeated.fold_hash == fold_result.fold_hash
+
+
+def test_historical_stratified_patient_folds_match_completed_method(
+    cohort_result, chorus_config
+):
+    config = deepcopy(chorus_config)
+    config["folds"]["method"] = "historical_stratified_group_k_fold_v1"
+    observed = create_patient_folds(cohort_result.cohort, config).assignments
+    expected = pd.Series(-1, index=cohort_result.cohort.index, dtype="int64")
+    splitter = StratifiedGroupKFold(
+        n_splits=5,
+        shuffle=True,
+        random_state=42,
+    )
+    for fold, (_, validation) in enumerate(
+        splitter.split(
+            cohort_result.cohort,
+            cohort_result.cohort["outcome"],
+            cohort_result.cohort["patient_id"],
+        )
+    ):
+        expected.iloc[validation] = fold
+    expected_by_visit = dict(
+        zip(
+            cohort_result.cohort["cohort_visit_number"],
+            expected,
+            strict=True,
+        )
+    )
+    assert observed.set_index("cohort_visit_number")["fold"].to_dict() == (
+        expected_by_visit
+    )
+    assert observed.groupby("patient_id")["fold"].nunique().max() == 1
 
 
 def test_fold_integrity_hard_fails_for_too_few_groups(chorus_config):

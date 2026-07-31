@@ -25,15 +25,18 @@ certifying a different fitted-model baseline.
 The synthetic configuration lowers bootstrap repetitions for runtime while exercising the same
 patient-clustered percentile implementation. Paper configuration specifies 2,000.
 
-The exact MIMIC release, confirmed CHoRUS mapping/snapshot, approved unit conversions, real
-manifests, manuscript reconciliation, and release-cleared aggregates are unavailable. Paper
-configurations fail closed on those fields. No real result is fabricated.
+The completed MIMIC source identifies release v3.1 and establishes its
+admission, race/ethnicity, medication, mortality, measurement availability,
+procedure-date, direct-HADM extraction, predictor-end, subsampling, row-order,
+and stratified patient-fold rules. Confirmed CHoRUS mapping/snapshot, real run
+reconciliation, and release-cleared clinical aggregates remain unavailable. No
+real result is fabricated.
 
-Recovered completed MIMIC scripts conflict with maintained manuscript material on derived-feature
-selection, measurement feature count, and medication concept count. The historical date-normalized
-death rule also conflicts with the precision correction required by the audit. Those
-methodological reconciliations remain explicit paper-run blockers; see
-`recovered_method_provenance.md`.
+Recovered completed MIMIC scripts establish 21 final derived columns selected by outer-training
+mutual information after training-median imputation. The completed medication stage used 250
+concepts; the corrected final design requires 50 for every domain. Paper mode encodes that
+explicit override and the historical date-normalized mortality rule. These choices require
+protected-output reconciliation; see `recovered_method_provenance.md`.
 
 Internally selected models are described from the same OOF predictions used for selection; they
 are not independent test estimates. This code does not establish clinical safety, causal effect,

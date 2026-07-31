@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.feature_selection import mutual_info_classif
+from sklearn.impute import SimpleImputer
 
 from ..errors import IntegrityError
 from ..hashing import hash_frame, hash_frame_values, hash_object
@@ -66,6 +68,7 @@ def build_fold_domain_features(
         selection.domain,
         selection.fold,
         config,
+        cohort.set_index("cohort_visit_number")["outcome"],
         {
             feature_safe_key(key): str(key)
             for key in selected_keys
@@ -123,9 +126,10 @@ def _select_derived_features(
     domain: str,
     fold: int,
     config: dict[str, Any],
+    outcomes_by_visit: pd.Series,
     concept_lookup: dict[str, str],
 ) -> pd.DataFrame:
-    """Rank raw derived columns using training-fold occurrence/availability only.
+    """Rank raw derived columns using one configured training-fold-only rule.
 
     Measurement summaries are available when nonmissing; measurement counts occur
     when positive; and a measurement missingness flag is considered available
@@ -142,11 +146,11 @@ def _select_derived_features(
             "training_support_prevalence_v1",
         )
     )
-    if rule != "training_support_prevalence_v1":
-        raise IntegrityError(
-            "This construction path supports only the unsupervised, pre-imputation "
-            f"training-support rule; observed {rule!r}"
-        )
+    if rule not in {
+        "training_support_prevalence_v1",
+        "mutual_information_after_training_median_v1",
+    }:
+        raise IntegrityError(f"Unsupported derived-feature selection rule: {rule!r}")
     candidate_names = [
         column for column in frame if column != "cohort_visit_number"
     ]
@@ -183,17 +187,34 @@ def _select_derived_features(
                 "training_support_count": support_count,
                 "training_support_proportion": support_proportion,
                 "selection_score": support_proportion,
-                "tie_break_value": candidate_order,
+                "tie_break_value": (
+                    candidate_order
+                    if rule == "training_support_prevalence_v1"
+                    else name
+                ),
                 "training_visit_count": len(training),
                 "support_definition": definition,
                 "selection_rule_identifier": rule,
                 "selection_rule_version": "1",
+                "eligibility_status": "eligible",
             }
         )
-    ranking = pd.DataFrame(rows).sort_values(
+    ranking = pd.DataFrame(rows)
+    if rule == "mutual_information_after_training_median_v1":
+        ranking = _score_training_mutual_information(
+            training,
+            ranking,
+            outcomes_by_visit,
+            training_visits,
+            domain,
+            fold,
+            config,
+        )
+    ranking = ranking.sort_values(
         ["selection_score", "tie_break_value"],
         ascending=[False, True],
         kind="stable",
+        na_position="last",
     ).reset_index(drop=True)
     ranking["rank"] = np.arange(1, len(ranking) + 1, dtype=np.int64)
     keep = int(config["features"]["retained_derived_feature_count"])
@@ -202,6 +223,14 @@ def _select_derived_features(
             f"{domain} fold {fold} has only {len(ranking)} derived features; {keep} required"
         )
     ranking["selected"] = ranking["rank"].le(keep)
+    if int(ranking["selected"].sum()) != keep or ranking.loc[
+        ranking["selected"], "selection_score"
+    ].isna().any():
+        eligible_count = int(ranking["selection_score"].notna().sum())
+        raise IntegrityError(
+            f"{domain} fold {fold} has only {eligible_count} eligible candidate "
+            f"features; exactly {keep} required"
+        )
     selection_hash = hash_frame(
         ranking,
         [
@@ -220,6 +249,7 @@ def _select_derived_features(
             "selected",
             "selection_rule_identifier",
             "selection_rule_version",
+            "eligibility_status",
         ],
     )
     ranking["derived_selection_hash"] = selection_hash
@@ -240,9 +270,114 @@ def _select_derived_features(
             "selected",
             "selection_rule_identifier",
             "selection_rule_version",
+            "eligibility_status",
             "derived_selection_hash",
         ]
     ]
+
+
+def _score_training_mutual_information(
+    training: pd.DataFrame,
+    ranking: pd.DataFrame,
+    outcomes_by_visit: pd.Series,
+    training_visits: set[int],
+    domain: str,
+    fold: int,
+    config: dict[str, Any],
+) -> pd.DataFrame:
+    """Apply the recovered MIMIC selector without reading validation rows."""
+    minimum = int(
+        config["features"].get("minimum_training_support_for_selection", 1)
+    )
+    candidate_names = ranking["candidate_feature_name"].tolist()
+    eligible: list[str] = []
+    reasons: dict[str, str] = {}
+    for name in candidate_names:
+        values = pd.to_numeric(training[name], errors="coerce").replace(
+            [np.inf, -np.inf], np.nan
+        )
+        if values.notna().sum() == 0:
+            reasons[name] = "no_training_values"
+            continue
+        if values.nunique(dropna=True) <= 1:
+            reasons[name] = "zero_training_variance"
+            continue
+        summary = ranking.loc[
+            ranking["candidate_feature_name"].eq(name), "summary_type"
+        ].iloc[0]
+        requires_minority_support = (
+            domain == "measurements" and summary == "missing"
+        ) or (
+            domain == "procedures"
+            and (summary == "exposure" or name == "any_procedure_24h")
+        )
+        if requires_minority_support:
+            counts = values.fillna(0).value_counts()
+            if len(counts) < 2 or int(counts.min()) < minimum:
+                reasons[name] = "insufficient_training_minority_support"
+                continue
+        elif int(
+            ranking.loc[
+                ranking["candidate_feature_name"].eq(name),
+                "training_support_count",
+            ].iloc[0]
+        ) < minimum:
+            reasons[name] = "insufficient_training_support"
+            continue
+        eligible.append(name)
+        reasons[name] = "eligible"
+    keep = int(config["features"]["retained_derived_feature_count"])
+    if len(eligible) < keep:
+        raise IntegrityError(
+            f"{domain} fold {fold} has only {len(eligible)} MI-eligible features; "
+            f"exactly {keep} required"
+        )
+    ordered_training = training.set_index("cohort_visit_number").loc[
+        sorted(training_visits), eligible
+    ]
+    y_train = (
+        pd.to_numeric(
+            outcomes_by_visit.loc[sorted(training_visits)], errors="raise"
+        )
+        .astype(int)
+        .to_numpy()
+    )
+    if set(np.unique(y_train)) != {0, 1}:
+        raise IntegrityError(
+            f"{domain} fold {fold} feature selection requires both outcome classes"
+        )
+    imputed = SimpleImputer(strategy="median").fit_transform(ordered_training)
+    discrete = np.asarray(
+        [
+            name.endswith("__missing")
+            or name.endswith("__count")
+            or name.endswith("__exposure")
+            or name
+            in {
+                "any_drug_24h",
+                "unique_drug_count_24h",
+                "repeat_drug_exposure_count_24h",
+                "any_procedure_24h",
+                "unique_procedure_count_24h",
+                "procedure_count_total_24h",
+            }
+            for name in eligible
+        ],
+        dtype=bool,
+    )
+    scores = mutual_info_classif(
+        imputed,
+        y_train,
+        discrete_features=discrete,
+        random_state=int(config["models"]["seed"]) + int(fold) + 1,
+    )
+    score_by_name = dict(zip(eligible, scores, strict=True))
+    result = ranking.copy()
+    result["selection_score"] = result["candidate_feature_name"].map(
+        score_by_name
+    )
+    result["eligibility_status"] = result["candidate_feature_name"].map(reasons)
+    return result
 
 
 def _feature_provenance(

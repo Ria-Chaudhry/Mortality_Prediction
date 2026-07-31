@@ -1,24 +1,32 @@
 # Cohort and outcome definition
 
-The unit is one configured parent acute-care encounter. Adult, acute, non-elective eligibility is
-applied before feature selection. Row order is stable by start time, patient key, and visit key.
+The unit is one configured parent acute-care encounter. Configured age, acute, and non-elective
+eligibility is applied before feature selection. Row order is stable by start time, patient key,
+and visit key. The MIMIC paper configuration uses minimum age 0 by explicit task requirement;
+the completed historical script used 18, so this deviation is reconciled in real runs.
 
-The prediction landmark is `start + landmark_hours` (24 hours in this design). The predictor
-interval is independently controlled by `predictor_window_hours`:
+The prediction landmark is `start + landmark_hours` (24 hours in this design).
+The predictor interval is independently controlled by
+`predictor_window_hours` and a versioned end policy:
 
 ```text
-[start, min(end when known, start + predictor_window_hours))
+admission_plus_window_v1:          [start, start + predictor_window_hours)
+earliest_discharge_or_window_v1:   [start, min(end when known, start + predictor_window_hours))
 ```
 
-The right edge is exclusive. A short retained visit stops collection at its end. Configuration
-rejects a predictor window after the landmark unless an explicit documented override permits it.
+The right edge is exclusive. MIMIC paper mode uses
+`admission_plus_window_v1`, matching the completed scripts even when discharge
+precedes hour 24. Other configurations can explicitly select the discharge cap.
+Configuration rejects a predictor window after the landmark unless an explicit
+documented override permits it.
 
 Death on or before the landmark excludes the visit. Outcome is one for death after the landmark
-and on or before 30 days from start. For native MIMIC, precise `admissions.deathtime` takes
-priority; `patients.dod` is used only as a date-only fallback. No midnight is invented. A
-date-only death on the landmark calendar date is conservatively treated as on/before landmark,
-and source-date disagreement is audited. A zero requires the configured verified-follow-up rule.
-Native MIMIC follow-up policy must be explicit; paper mode will not infer it.
+and on or before 30 days from start. MIMIC paper mode reproduces the completed date-level rule:
+normalize both `admissions.deathtime` and `patients.dod`, select the earliest nonmissing date,
+exclude on/before the normalized landmark date, and label through the normalized 30-day date.
+Source disagreement is audited. A separate generic native rule preserves precise `deathtime` and
+uses `dod` only as a date fallback; the two policies cannot be mixed silently. A zero requires
+the configured explicit follow-up policy.
 
 Charlson and utilization use qualifying prior encounters beginning on or after
 `index_start - 365 days` and strictly before index start. Index-admission diagnoses are excluded.

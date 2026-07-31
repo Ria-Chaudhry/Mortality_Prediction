@@ -337,6 +337,7 @@ class LocalFileAdapter(SourceAdapter):
         for standard in ("diagnoses", "measurements", "medications", "procedures"):
             allowed: dict[str, set[Any]] = {}
             allowed_any: dict[str, set[Any]] = {}
+            primary_or_fallback = None
             source_visit = self.source["columns"][standard].get(
                 "source_visit_id" if standard != "diagnoses" else "visit_id"
             )
@@ -344,9 +345,16 @@ class LocalFileAdapter(SourceAdapter):
             if standard == "diagnoses" and source_patient:
                 allowed[source_patient] = candidate_patients
             else:
-                if source_visit:
+                if source_visit and source_patient:
+                    primary_or_fallback = (
+                        source_visit,
+                        candidate_visits,
+                        source_patient,
+                        candidate_patients,
+                    )
+                elif source_visit:
                     allowed_any[source_visit] = candidate_visits
-                if source_patient:
+                elif source_patient:
                     allowed_any[source_patient] = candidate_patients
             event_target = (
                 "diagnosis_datetime" if standard == "diagnoses" else "event_datetime"
@@ -376,6 +384,7 @@ class LocalFileAdapter(SourceAdapter):
                 columns=self._source_columns(standard),
                 allowed_values=allowed,
                 allowed_any=allowed_any,
+                primary_or_fallback=primary_or_fallback,
                 time_bounds=bounds,
             )
         for standard in ("bridge", "observations"):

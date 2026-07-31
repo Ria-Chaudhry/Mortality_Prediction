@@ -408,6 +408,15 @@ def run_pipeline(
         else restricted_dir / "fold_derived_feature_selections.csv"
     )
     write_csv(derived_selections, derived_selection_target)
+    fold_selection_audit = _build_fold_selection_audit(
+        config, selections, derived_selections
+    )
+    fold_selection_audit_target = (
+        public_dir / "fold_selection_audit.csv"
+        if config.get("synthetic")
+        else restricted_dir / "fold_selection_audit.csv"
+    )
+    write_csv(fold_selection_audit, fold_selection_audit_target)
     selection_frequency = (
         selections.groupby(["domain", "concept_key", "concept_name"], dropna=False)
         .agg(folds_selected=("fold", "nunique"), mean_training_prevalence=("training_visit_prevalence", "mean"))
@@ -478,6 +487,7 @@ def run_pipeline(
                 "retained_derived_feature_count"
             ],
             "training_folds_only": True,
+            "combined_audit_rows": len(fold_selection_audit),
         },
         public_dir / "manifests" / "selection_manifest.json",
     )
@@ -543,6 +553,7 @@ def run_pipeline(
             restricted_dir,
             evaluation_result.tables["best_model_by_matrix.csv"],
             derived_selections,
+            predictions,
         )
         shap_fold_target = (
             public_dir / "shap_fold_aggregates.csv"
@@ -627,6 +638,7 @@ def run_pipeline(
             [
                 "fold_concept_selections.csv",
                 "fold_derived_feature_selections.csv",
+                "fold_selection_audit.csv",
                 "concept_selection_frequency.csv",
                 "measurement_unit_audit.csv",
                 "feature_dictionary.csv",
@@ -1580,6 +1592,7 @@ def _build_shap_outputs(
     restricted_dir: Path,
     selected_models: pd.DataFrame,
     derived_selections: pd.DataFrame,
+    oof_predictions: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Refit selected models and aggregate held-out permutation SHAP by fold."""
     assignment_index = assignments.set_index("cohort_visit_number")
@@ -1627,6 +1640,35 @@ def _build_shap_outputs(
             validation = assignment_index.index[
                 assignment_index["fold"].eq(fold)
             ].astype(int).tolist()
+            model_name = str(selected[matrix_name])
+            fit = fit_predict_fold(
+                matrix.loc[training],
+                outcome.loc[training],
+                matrix.loc[validation],
+                model_name,
+                config,
+            )
+            expected_probability = (
+                oof_predictions.loc[
+                    oof_predictions["fold"].astype(int).eq(fold)
+                    & oof_predictions["matrix"].eq(matrix_name)
+                    & oof_predictions["model"].eq(model_name),
+                    ["cohort_visit_number", "probability"],
+                ]
+                .set_index("cohort_visit_number")
+                .loc[validation, "probability"]
+                .to_numpy(dtype=float)
+            )
+            if not np.allclose(
+                fit.probabilities,
+                expected_probability,
+                rtol=0,
+                atol=1e-15,
+            ):
+                raise IntegrityError(
+                    "Unified SHAP stage could not reproduce the selected model's "
+                    "stored outer-fold OOF probabilities"
+                )
             shap_part = fold_shap_aggregate(
                 matrix.loc[training],
                 outcome.loc[training],
@@ -1634,8 +1676,10 @@ def _build_shap_outputs(
                 dataset=str(config["dataset"]),
                 fold=fold,
                 matrix=matrix_name,
-                model=str(selected[matrix_name]),
+                model=model_name,
                 config=config,
+                fitted_pipeline=fit.pipeline,
+                model_fit_source="verified_deterministic_refit_of_oof_fold",
             )
             mapped = shap_part["feature"].map(fold_provenance["domain"])
             clinical = mapped.notna()
@@ -1648,6 +1692,22 @@ def _build_shap_outputs(
             ].map(fold_provenance["summary_type"])
             fold_parts.append(shap_part)
     fold_table = pd.concat(fold_parts, ignore_index=True)
+    expected_pairs = int(config["folds"]["count"]) * len(config["matrices"])
+    observed_pairs = fold_table[
+        ["outer_fold", "feature_matrix"]
+    ].drop_duplicates()
+    if len(observed_pairs) != expected_pairs:
+        raise IntegrityError(
+            "Unified SHAP stage did not process every matrix in every outer fold"
+        )
+    aggregation_policy = str(
+        config["models"]["shap"].get(
+            "cross_fold_aggregation",
+            "mean_over_folds_where_feature_selected_v1",
+        )
+    )
+    if set(fold_table["fold_aggregation_policy"]) != {aggregation_policy}:
+        raise IntegrityError("SHAP fold aggregation policy changed across matrices")
     summary = (
         fold_table.groupby(
             [
@@ -1666,6 +1726,8 @@ def _build_shap_outputs(
         .agg(
             mean_absolute_shap=("mean_absolute_shap", "mean"),
             folds=("outer_fold", "nunique"),
+            mean_background_rows=("background_rows", "mean"),
+            mean_evaluation_rows=("evaluation_rows", "mean"),
         )
         .sort_values(
             ["feature_matrix", "mean_absolute_shap", "feature"],
@@ -1677,7 +1739,90 @@ def _build_shap_outputs(
     summary["rank"] = (
         summary.groupby("feature_matrix", sort=False).cumcount() + 1
     )
+    summary["fold_aggregation_policy"] = aggregation_policy
     return fold_table, summary
+
+
+def _build_fold_selection_audit(
+    config: dict[str, Any],
+    concepts: pd.DataFrame,
+    derived: pd.DataFrame,
+) -> pd.DataFrame:
+    """Combine concept, candidate-feature, and matrix-use evidence."""
+    concept_lookup = concepts.rename(
+        columns={
+            "fold": "outer_fold",
+            "domain": "clinical_domain",
+            "concept_key": "concept_identifier",
+            "rank": "concept_rank",
+            "training_visit_prevalence": "concept_selection_statistic",
+            "selected": "selected_concept",
+        }
+    )[
+        [
+            "outer_fold",
+            "clinical_domain",
+            "concept_identifier",
+            "concept_rank",
+            "concept_selection_statistic",
+            "selected_concept",
+        ]
+    ]
+    audit = derived.rename(
+        columns={
+            "fold": "outer_fold",
+            "domain": "clinical_domain",
+            "source_concept": "concept_identifier",
+            "candidate_feature_name": "constructed_candidate_feature",
+            "rank": "candidate_feature_rank",
+            "selected": "final_selected_feature",
+        }
+    ).merge(
+        concept_lookup,
+        on=["outer_fold", "clinical_domain", "concept_identifier"],
+        how="left",
+        validate="many_to_one",
+    )
+    aggregate = audit["concept_identifier"].eq("__domain_aggregate__")
+    audit.loc[aggregate, "selected_concept"] = False
+    matrices_by_domain = {
+        domain: "|".join(
+            matrix
+            for matrix, components in config["matrices"].items()
+            if domain in components
+        )
+        for domain in ("measurements", "medications", "procedures")
+    }
+    audit["matrices_using_selected_feature"] = ""
+    selected = audit["final_selected_feature"].astype(bool)
+    audit.loc[selected, "matrices_using_selected_feature"] = audit.loc[
+        selected, "clinical_domain"
+    ].map(matrices_by_domain)
+    audit.insert(0, "dataset", str(config["dataset"]))
+    return audit[
+        [
+            "dataset",
+            "outer_fold",
+            "clinical_domain",
+            "concept_identifier",
+            "concept_rank",
+            "concept_selection_statistic",
+            "selected_concept",
+            "constructed_candidate_feature",
+            "training_support_count",
+            "training_support_proportion",
+            "selection_score",
+            "tie_break_value",
+            "candidate_feature_rank",
+            "final_selected_feature",
+            "selection_rule_identifier",
+            "selection_rule_version",
+            "matrices_using_selected_feature",
+        ]
+    ].sort_values(
+        ["outer_fold", "clinical_domain", "candidate_feature_rank"],
+        kind="stable",
+    )
 
 
 def _verify_selection_artifacts(config: dict[str, Any], root: Path) -> None:
@@ -1688,6 +1833,7 @@ def _verify_selection_artifacts(config: dict[str, Any], root: Path) -> None:
     evidence_paths = {
         "concept selections": concept_path,
         "derived-feature selections": derived_path,
+        "combined selection audit": restricted_root / "fold_selection_audit.csv",
         "cohort": restricted_root / "base_acute_care_cohort.parquet",
         "baseline": restricted_root / "baseline_X.parquet",
         "fold assignments": restricted_root / "fold_assignments_restricted.csv",
@@ -1728,6 +1874,7 @@ def _verify_selection_artifacts(config: dict[str, Any], root: Path) -> None:
         "selected",
         "selection_rule_identifier",
         "selection_rule_version",
+        "eligibility_status",
         "derived_selection_hash",
     }
     missing = required_derived - set(derived)
@@ -1753,10 +1900,58 @@ def _verify_selection_artifacts(config: dict[str, Any], root: Path) -> None:
         raise IntegrityError(
             f"concept selection table is missing columns: {sorted(missing_concept)}"
         )
+    if concepts.duplicated(["fold", "domain", "concept_key"]).any():
+        raise IntegrityError("concept selection table contains duplicate fold/domain concepts")
+    if derived.duplicated(["fold", "domain", "candidate_feature_name"]).any():
+        raise IntegrityError(
+            "derived-feature selection table contains duplicate fold/domain features"
+        )
     if assignments["cohort_visit_number"].duplicated().any():
         raise IntegrityError("selection verification found duplicate fold assignments")
     if set(assignments["cohort_visit_number"]) != set(cohort["cohort_visit_number"]):
         raise IntegrityError("selection verification fold assignments do not cover the cohort")
+    concept_audit_source = concepts.copy()
+    concept_audit_source["selected"] = _strict_boolean(
+        concept_audit_source["selected"], "concept selected"
+    )
+    derived_audit_source = derived.copy()
+    derived_audit_source["selected"] = _strict_boolean(
+        derived_audit_source["selected"], "derived-feature selected"
+    )
+    expected_combined = _build_fold_selection_audit(
+        config,
+        concept_audit_source,
+        derived_audit_source,
+    ).reset_index(drop=True)
+    observed_combined = pd.read_csv(evidence_paths["combined selection audit"])
+    if list(observed_combined.columns) != list(expected_combined.columns):
+        raise IntegrityError(
+            "combined selection audit columns differ from the generated evidence"
+        )
+    for column in ("selected_concept", "final_selected_feature"):
+        observed_combined[column] = _strict_boolean(
+            observed_combined[column], f"combined selection audit {column}"
+        )
+        expected_combined[column] = _strict_boolean(
+            expected_combined[column], f"expected combined selection audit {column}"
+        )
+    for table in (observed_combined, expected_combined):
+        table["matrices_using_selected_feature"] = table[
+            "matrices_using_selected_feature"
+        ].fillna("")
+    try:
+        pd.testing.assert_frame_equal(
+            observed_combined,
+            expected_combined,
+            check_dtype=False,
+            check_exact=False,
+            rtol=0,
+            atol=5e-11,
+        )
+    except AssertionError as error:
+        raise IntegrityError(
+            "combined selection audit differs from concept and derived-feature evidence"
+        ) from error
 
     matrix_manifest_path = root / "matrix_manifest.csv"
     if not matrix_manifest_path.is_file():
@@ -1855,6 +2050,7 @@ def _verify_selection_artifacts(config: dict[str, Any], root: Path) -> None:
                     "selected",
                     "selection_rule_identifier",
                     "selection_rule_version",
+                    "eligibility_status",
                     "derived_selection_hash",
                 ],
                 f"{domain} fold {fold} derived-feature selection",
@@ -1962,8 +2158,13 @@ def _strict_boolean(values: pd.Series, label: str) -> pd.Series:
     unknown = normalized.notna() & ~normalized.isin({"true", "false", "1", "0"})
     if unknown.any():
         raise IntegrityError(f"{label} contains invalid boolean values")
-    return normalized.map({"true": True, "1": True, "false": False, "0": False}).fillna(
-        False
+    return (
+        normalized.map(
+            {"true": True, "1": True, "false": False, "0": False}
+        )
+        .astype("boolean")
+        .fillna(False)
+        .astype(bool)
     )
 
 

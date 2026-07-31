@@ -223,7 +223,15 @@ def _link_one(
     date_in_window = (
         linked["event_date"].notna()
         & linked["event_date"].ge(linked["start_datetime"].dt.normalize())
-        & linked["event_date"].le(linked["predictor_end_datetime"].dt.normalize())
+        & linked["event_date"].le(
+            (
+                linked["start_datetime"]
+                + pd.to_timedelta(
+                    config["cohort"]["predictor_window_hours"],
+                    unit="h",
+                )
+            ).dt.normalize()
+        )
     )
     in_window = (exact_time & exact_in_window) | (date_only & date_in_window)
     out_of_window = int((~in_window).sum())

@@ -11,6 +11,7 @@ import shap
 from sklearn.pipeline import Pipeline
 
 from ..errors import IntegrityError
+from ..hashing import hash_object
 from .runner import fit_predict_fold
 
 
@@ -24,6 +25,8 @@ def fold_shap_aggregate(
     matrix: str,
     model: str,
     config: dict[str, Any],
+    fitted_pipeline: Pipeline | None = None,
+    model_fit_source: str = "fit_inside_shap_stage",
 ) -> pd.DataFrame:
     """Explain held-out rows against a training-only background.
 
@@ -35,8 +38,24 @@ def fold_shap_aggregate(
     settings = config["models"]["shap"]
     if settings.get("explainer") != "permutation":
         raise IntegrityError("Only the recovered permutation SHAP procedure is supported")
-    fit = fit_predict_fold(x_train, y_train, x_validation, model, config)
-    pipeline = fit.pipeline
+    if list(x_train.columns) != list(x_validation.columns):
+        raise IntegrityError(
+            "SHAP training and held-out input feature order differs"
+        )
+    pipeline = (
+        fitted_pipeline
+        if fitted_pipeline is not None
+        else fit_predict_fold(
+            x_train, y_train, x_validation, model, config
+        ).pipeline
+    )
+    fitted_names = getattr(pipeline, "feature_names_in_", None)
+    if fitted_names is None or list(map(str, fitted_names)) != list(
+        x_train.columns.astype(str)
+    ):
+        raise IntegrityError(
+            "Fitted model feature order differs from the SHAP matrix"
+        )
     transformed_train = _transform_without_estimator(pipeline, x_train)
     transformed_validation = _transform_without_estimator(pipeline, x_validation)
     transformed_names, raw_names = _retained_feature_names(pipeline, x_train)
@@ -44,16 +63,18 @@ def fold_shap_aggregate(
         raise IntegrityError("SHAP transformed feature names do not match matrix width")
 
     seed = int(settings["seed"]) + int(fold)
-    background = _deterministic_sample(
-        transformed_train,
+    background_positions = _deterministic_sample_positions(
+        len(transformed_train),
         int(settings["background_rows"]),
         seed,
     )
-    explained = _deterministic_sample(
-        transformed_validation,
+    evaluation_positions = _deterministic_sample_positions(
+        len(transformed_validation),
         int(settings["evaluation_rows"]),
         seed + int(settings.get("evaluation_seed_offset", 100)),
     )
+    background = transformed_train[background_positions]
+    explained = transformed_validation[evaluation_positions]
     estimator = pipeline.named_steps["estimator"]
     classes = np.asarray(pipeline.classes_)
     positive = np.flatnonzero(classes == 1)
@@ -121,6 +142,33 @@ def fold_shap_aggregate(
     aggregate["background_rows"] = len(background)
     aggregate["evaluation_rows"] = len(explained)
     aggregate["random_seed"] = seed
+    aggregate["model_fit_source"] = model_fit_source
+    aggregate["input_feature_count"] = len(x_train.columns)
+    aggregate["input_feature_order_hash"] = hash_object(
+        x_train.columns.astype(str).tolist()
+    )
+    aggregate["selected_input_features"] = "|".join(
+        x_train.columns.astype(str).tolist()
+    )
+    aggregate["encoded_feature_count"] = len(transformed_names)
+    aggregate["training_partition_index_hash"] = hash_object(
+        x_train.index.tolist()
+    )
+    aggregate["validation_partition_index_hash"] = hash_object(
+        x_validation.index.tolist()
+    )
+    aggregate["background_position_hash"] = hash_object(
+        background_positions.tolist()
+    )
+    aggregate["evaluation_position_hash"] = hash_object(
+        evaluation_positions.tolist()
+    )
+    aggregate["fold_aggregation_policy"] = str(
+        settings.get(
+            "cross_fold_aggregation",
+            "mean_over_folds_where_feature_selected_v1",
+        )
+    )
     return aggregate
 
 
@@ -162,11 +210,15 @@ def _retained_feature_names(
     )
 
 
-def _deterministic_sample(values: np.ndarray, limit: int, seed: int) -> np.ndarray:
-    if len(values) <= limit:
-        return values.copy()
-    positions = np.random.default_rng(seed).choice(len(values), size=limit, replace=False)
-    return values[np.sort(positions)]
+def _deterministic_sample_positions(
+    row_count: int, limit: int, seed: int
+) -> np.ndarray:
+    if row_count <= limit:
+        return np.arange(row_count, dtype=np.int64)
+    positions = np.random.default_rng(seed).choice(
+        row_count, size=limit, replace=False
+    )
+    return np.sort(positions).astype(np.int64)
 
 
 def _raw_feature_provenance(name: str) -> tuple[str, str, str]:

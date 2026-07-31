@@ -12,7 +12,8 @@
 | `event_linkage_audit.csv` | Direct, bridge, patient-time, unmatched, and window counts. |
 | `event_linkage_restricted.csv` | Restricted event-level linkage strategy/reason evidence; never public for clinical runs. |
 | `fold_concept_selections.csv` | Per-fold top-50 rank/prevalence/semantics/units/hash when classification permits. |
-| `fold_derived_feature_selections.csv` | Every 300/104/103 candidate row with source concept, summary, pre-imputation training support, score, construction-order tie-break, rank, selected flag, versioned rule, and hash. Exactly 21 are selected per fold/domain. Restricted for clinical runs. |
+| `fold_derived_feature_selections.csv` | Every 300/104/103 candidate row with source concept, summary, pre-imputation training support, configured score, tie-break, eligibility reason, rank, selected flag, versioned rule, and hash. Exactly 21 are selected per fold/domain. Restricted for clinical runs. |
+| `fold_selection_audit.csv` | Restricted joined concept/candidate evidence with concept and feature ranks, selected flags, and every matrix that reuses a selected domain column. |
 | `feature_manifest.csv` | Constructed/retained counts plus schema and value hashes. |
 | `matrix_manifest.csv` | Matrix row/count, schema hash, and feature-matrix value hash. |
 | `fold_metrics.csv`, `fold_metric_summaries.csv` | Fold estimates and mean/sample SD. |
@@ -26,8 +27,8 @@
 | `selected_models_calibration_coordinates.csv` | Quantile-bin coordinates and event-rate intervals. |
 | `selected_models_decision_curve_coordinates.csv` | Model, treat-all, treat-none net benefit and intervals. |
 | `prespecified_paired_matrix_comparisons.csv` | Shared-patient-bootstrap matrix increments. |
-| `shap_fold_aggregates.csv` | Restricted clinical (public synthetic) fold-level mean absolute held-out permutation SHAP; never encounter-level values. |
-| `shap_summary.csv` | Safe cross-fold selected-model SHAP aggregates and ranks. |
+| `shap_fold_aggregates.csv` | Restricted clinical (public synthetic) fold-level mean absolute held-out permutation SHAP, selected model, sample sizes, seeds, feature-order and partition hashes, and aggregation policy; never encounter-level values. |
+| `shap_summary.csv` | Safe cross-fold selected-model SHAP aggregates and ranks, averaged over folds in which a fold-specific feature was selected. |
 | selected-model tables | Performance, clinical utility, and calibration manuscript inputs. |
 | `manifests/*.json` | Input/config/mapping/cohort/row/fold/selection/domain/matrix/model/output provenance, including exact training/validation/preprocessing-fit partition hashes and a fitted preprocessing-state hash. |
 

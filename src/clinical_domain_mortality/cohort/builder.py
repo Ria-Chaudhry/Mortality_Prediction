@@ -62,7 +62,7 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
         )
     eligible = frame["age"].between(rules["min_age_years"], rules["max_age_years"], inclusive="both")
     frame = frame.loc[eligible].copy()
-    _record(attrition, "adult age range", frame)
+    _record(attrition, "configured age range", frame)
 
     acute_types = {str(value).casefold() for value in rules["acute_visit_types"]}
     frame = frame.loc[frame["visit_type"].str.casefold().isin(acute_types)].copy()
@@ -75,7 +75,25 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
     frame = frame.loc[~elective_text.isin(excluded_elective)].copy()
     _record(attrition, "non-elective", frame)
 
-    frame = frame.merge(deaths, on="patient_id", how="left", validate="many_to_one")
+    if "visit_id" in deaths and deaths["visit_id"].notna().any():
+        visit_deaths = deaths.loc[deaths["visit_id"].notna()].copy()
+        if visit_deaths.duplicated(["patient_id", "visit_id"]).any():
+            raise IntegrityError(
+                "Visit-specific death ascertainment contains duplicate visit rows"
+            )
+        frame = frame.merge(
+            visit_deaths,
+            on=["patient_id", "visit_id"],
+            how="left",
+            validate="one_to_one",
+        )
+    else:
+        frame = frame.merge(
+            deaths.drop(columns=["visit_id"], errors="ignore"),
+            on="patient_id",
+            how="left",
+            validate="many_to_one",
+        )
     frame["landmark_datetime"] = frame["start_datetime"] + pd.to_timedelta(
         rules["landmark_hours"], unit="h"
     )
@@ -85,15 +103,29 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
     frame["configured_predictor_end_datetime"] = frame[
         "start_datetime"
     ] + pd.to_timedelta(rules["predictor_window_hours"], unit="h")
-    frame["predictor_end_datetime"] = frame[
-        ["end_datetime", "configured_predictor_end_datetime"]
-    ].min(axis=1)
-    frame["predictor_end_datetime"] = frame["predictor_end_datetime"].fillna(
-        frame["configured_predictor_end_datetime"]
+    predictor_end_policy = rules.get(
+        "predictor_window_end_policy",
+        "earliest_discharge_or_window_v1",
     )
+    if predictor_end_policy == "admission_plus_window_v1":
+        frame["predictor_end_datetime"] = frame[
+            "configured_predictor_end_datetime"
+        ]
+    elif predictor_end_policy == "earliest_discharge_or_window_v1":
+        frame["predictor_end_datetime"] = frame[
+            ["configured_predictor_end_datetime", "end_datetime"]
+        ].min(axis=1)
+    else:
+        raise IntegrityError(
+            f"Unsupported predictor-window end policy: {predictor_end_policy}"
+        )
     frame["short_visit"] = frame["end_datetime"].notna() & (
         frame["end_datetime"] < frame["landmark_datetime"]
     )
+    invalid_time = frame["end_datetime"].notna() & (
+        frame["end_datetime"] < frame["start_datetime"]
+    )
+    frame = frame.loc[~invalid_time].copy()
     if not rules["retain_short_visits"]:
         frame = frame.loc[~frame["short_visit"]].copy()
     _record(attrition, "short-visit policy", frame)
@@ -159,9 +191,17 @@ def build_cohort(data: StandardizedData, config: dict[str, Any]) -> CohortResult
     if frame["visit_id"].duplicated().any():
         raise IntegrityError("Eligible cohort has duplicate visit identifiers")
 
-    frame = frame.sort_values(
-        ["start_datetime", "patient_id", "visit_id"], kind="stable"
-    ).reset_index(drop=True)
+    row_order_policy = rules.get(
+        "row_order_policy",
+        "start_patient_visit_v1",
+    )
+    if row_order_policy == "patient_start_visit_v1":
+        row_order = ["patient_id", "start_datetime", "visit_id"]
+    elif row_order_policy == "start_patient_visit_v1":
+        row_order = ["start_datetime", "patient_id", "visit_id"]
+    else:
+        raise IntegrityError(f"Unsupported cohort row-order policy: {row_order_policy}")
+    frame = frame.sort_values(row_order, kind="stable").reset_index(drop=True)
     frame.insert(0, "cohort_visit_number", np.arange(1, len(frame) + 1, dtype=np.int64))
     prior = _prior_features(
         frame,
@@ -366,6 +406,41 @@ def _mimic_subsample(frame: pd.DataFrame, config: dict[str, Any]) -> pd.DataFram
     if len(frame) <= maximum:
         return frame
     seed = int(settings["seed"])
+    if settings.get("method") == "historical_random_patient_order_boundary_v1":
+        work = frame.reset_index(drop=True)
+        rng = np.random.default_rng(seed)
+        patient_order = rng.permutation(work["patient_id"].dropna().unique())
+        grouped = {
+            patient_id: np.asarray(positions, dtype=int)
+            for patient_id, positions in work.groupby(
+                "patient_id", sort=False
+            ).indices.items()
+        }
+        selected: list[int] = []
+        for patient_id in patient_order:
+            positions = grouped[patient_id].copy()
+            remaining = maximum - len(selected)
+            if remaining <= 0:
+                break
+            if len(positions) <= remaining:
+                selected.extend(positions.tolist())
+            else:
+                rng.shuffle(positions)
+                selected.extend(positions[:remaining].tolist())
+                break
+        sampled = work.iloc[selected].copy()
+        sampled = sampled.sort_values(
+            ["patient_id", "start_datetime", "visit_id"], kind="stable"
+        ).reset_index(drop=True)
+        if len(sampled) != maximum or sampled["visit_id"].duplicated().any():
+            raise IntegrityError(
+                "Historical MIMIC patient-order subsampling failed its invariants"
+            )
+        return sampled
+    if settings.get("method") != "seeded_sha256_visit_rank":
+        raise IntegrityError(
+            f"Unsupported MIMIC subsampling method: {settings.get('method')}"
+        )
     scored = frame.assign(
         _subsample_hash=frame["visit_id"].map(
             lambda value: hashlib.sha256(f"{seed}|{value}".encode()).hexdigest()

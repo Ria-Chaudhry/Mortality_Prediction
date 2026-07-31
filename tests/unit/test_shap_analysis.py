@@ -4,8 +4,10 @@ from copy import deepcopy
 
 import numpy as np
 import pandas as pd
+import pytest
 
-from clinical_domain_mortality.modeling import fold_shap_aggregate
+from clinical_domain_mortality.errors import IntegrityError
+from clinical_domain_mortality.modeling import fit_predict_fold, fold_shap_aggregate
 
 
 def test_shap_uses_training_background_and_held_out_evaluation(chorus_config):
@@ -29,25 +31,38 @@ def test_shap_uses_training_background_and_held_out_evaluation(chorus_config):
             "measurement__sodium__count": [1, 2, 1],
         }
     )
+    x_train.index = [101, 102, 103, 104, 105, 106]
+    x_validation.index = [201, 202, 203]
+    fit = fit_predict_fold(
+        x_train,
+        y_train.set_axis(x_train.index),
+        x_validation,
+        "logistic_regression",
+        config,
+    )
     result = fold_shap_aggregate(
         x_train,
-        y_train,
+        y_train.set_axis(x_train.index),
         x_validation,
         dataset="synthetic",
         fold=0,
         matrix="baseline_measurements",
         model="logistic_regression",
         config=config,
+        fitted_pipeline=fit.pipeline,
+        model_fit_source="verified_test_fit",
     )
     repeated = fold_shap_aggregate(
         x_train,
-        y_train,
+        y_train.set_axis(x_train.index),
         x_validation,
         dataset="synthetic",
         fold=0,
         matrix="baseline_measurements",
         model="logistic_regression",
         config=config,
+        fitted_pipeline=fit.pipeline,
+        model_fit_source="verified_test_fit",
     )
     pd.testing.assert_frame_equal(result, repeated, check_exact=True)
     assert set(result["feature"]) == set(x_train.columns)
@@ -55,6 +70,11 @@ def test_shap_uses_training_background_and_held_out_evaluation(chorus_config):
     assert result["rank"].tolist() == list(range(1, len(result) + 1))
     assert set(result["evaluation_partition"]) == {"outer_validation_fold"}
     assert set(result["background_partition"]) == {"outer_training_fold"}
+    assert set(result["model_fit_source"]) == {"verified_test_fit"}
+    assert (
+        result["training_partition_index_hash"].iloc[0]
+        != result["validation_partition_index_hash"].iloc[0]
+    )
     assert np.isfinite(result["mean_absolute_shap"]).all()
     sodium = result.loc[
         result["feature"].eq("measurement__sodium__mean")
@@ -62,3 +82,17 @@ def test_shap_uses_training_background_and_held_out_evaluation(chorus_config):
     assert sodium["clinical_domain"] == "measurements"
     assert sodium["source_concept"] == "sodium"
     assert sodium["summary_type"] == "mean"
+    with pytest.raises(IntegrityError, match="feature order"):
+        fold_shap_aggregate(
+            x_train,
+            y_train.set_axis(x_train.index),
+            x_validation.loc[
+                :, list(reversed(x_validation.columns))
+            ],
+            dataset="synthetic",
+            fold=0,
+            matrix="baseline_measurements",
+            model="logistic_regression",
+            config=config,
+            fitted_pipeline=fit.pipeline,
+        )

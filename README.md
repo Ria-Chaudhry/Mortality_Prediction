@@ -9,17 +9,20 @@ The public synthetic execution is tested. Native MIMIC-IV file normalization is 
 Each dataset is run independently; outcomes, patients, concepts, folds, models, and predictions are never transferred or pooled. The pipeline:
 
 1. Projects configured columns and applies cohort/time predicates before loading large domains.
-2. Freezes adult, non-elective acute encounters, row order, the outcome, and baseline.
-3. Assigns patients, not encounters, to one deterministic five-fold partition.
+2. Freezes the configured age range, non-elective acute encounters, row order, the outcome, and baseline.
+3. Assigns patients, not encounters, to one frozen five-fold partition. MIMIC
+   paper mode reproduces the completed patient/start/visit row order and seeded
+   shuffled `StratifiedGroupKFold`; other runs use their configured versioned
+   grouped-fold policy.
 4. Within each outer fold and domain, ranks 50 concepts using distinct training visits only.
 5. Constructs 300 measurement, 104 medication, or 103 procedure candidate columns.
-6. Before imputation, ranks candidate columns by training-visit support proportion and retains exactly 21 final matrix columns per domain, resolving equal support by the frozen candidate-construction order.
+6. Retains exactly 21 final matrix columns per domain using the configured outer-training-only rule: support prevalence for the synthetic demonstration and the recovered training-median/mutual-information rule for MIMIC paper mode.
 7. Reuses the same fold-specific 21 columns in every matrix containing that domain.
 8. Fits all learned preprocessing and each model on outer-training visits only, then creates one held-out positive-class probability per visit, matrix, and model.
 
 The eight matrices are baseline, three single-domain additions, three pairwise additions, and all domains. Logistic regression, random forest, gradient boosting, and LightGBM give 160 outer-fold fits and 32 OOF probabilities per visit in each dataset.
 
-The evidence search found a conflict: completed MIMIC stage scripts used training-fold mutual information after median imputation, retained 15 measurement features and 21 medication/procedure features, and ranked 250 medication concepts; maintained manuscript material describes occurrence frequency, 50 concepts, and 21 features in every domain. The implemented synthetic rule is the requested unsupervised 21-column design, but it is not represented as a confirmed historical paper method. Paper mode fails closed until the discrepancy is reconciled. See [`docs/recovered_method_provenance.md`](docs/recovered_method_provenance.md).
+The completed MIMIC measurement and procedure scripts used 50 concepts and 21 final columns; the medication script used 250 concepts and 21 columns. All three used outer-training mutual information after training-median imputation for the final 21. The required corrected design overrides medication to 50 concepts and preserves 21 columns in every domain. That deviation is explicit and must be reconciled on protected data before any paper-reproduction claim. See [`docs/recovered_method_provenance.md`](docs/recovered_method_provenance.md).
 
 ## Install and test
 
@@ -80,9 +83,9 @@ Those commands must not be treated as successful until a controlled local overri
 
 MIMIC-IV requires credentialed PhysioNet access. The native adapter reads projected columns from CSV, CSV.GZ, or Parquet using bounded chunks or Parquet predicate pushdown. Its required tables and fields are documented in [`docs/source_adapter_contract.md`](docs/source_adapter_contract.md).
 
-Age is `anchor_age + (admission year - anchor_year)`. A precise `admissions.deathtime` has priority and is never overridden by a midnight-coerced `patients.dod`; `dod` is retained as a date-only fallback, and source conflicts are audited. A date-only death on the landmark calendar date is conservatively excluded without inventing a time. Medication concepts must be configured as one of `formulary_drug_cd`, `gsn`, `ndc`, or `drug`; race, ethnicity availability/derivation, and admission types require explicit harmonization. Native records without event IDs receive stable, multiplicity-preserving internal keys. Concepts are namespaced by source. `procedures_icd.chartdate` remains date-only and uses the recovered inclusive calendar-date-span rule rather than a fictitious timestamp window.
+Age is `anchor_age + (admission year - anchor_year)`. The current MIMIC paper configuration uses minimum age 0, an explicit task-level change from the historical script’s age 18. Paper mortality reproduces the completed date-level rule: normalize `admissions.deathtime` and `patients.dod`, choose the earliest date, exclude on/before the landmark date, and label through day 30. The generic native adapter also supports a separate explicit precision-preserving rule for nonpaper analyses. Medication concepts use the recovered GSN → NDC → formulary code → normalized drug-name hierarchy. Race/ethnicity and the seven acute admission categories reproduce the completed mapping. Paper extraction requires a qualifying native `hadm_id` and uses admission through hour 24 without shortening the predictor interval at an early discharge, matching the completed scripts; patient-time fallback and discharge-capped windows remain explicit nonpaper options. Native records without event IDs receive stable, multiplicity-preserving internal keys. Concepts are namespaced by source. `procedures_icd.chartdate` remains date-only and uses the recovered inclusive calendar-date-span rule rather than a fictitious timestamp window.
 
-The exact MIMIC-IV manuscript release could not be established from the PDF, repository history, old scripts, or local documentation. `configs/mimiciv.paper.yaml` leaves it `UNCONFIRMED` and fails closed; it does not assume v3.1 or “current”:
+The completed scripts identify MIMIC-IV v3.1. `configs/mimiciv.paper.yaml` freezes that release and all recovered source rules:
 
 ```bash
 make paper-preflight-mimiciv
@@ -90,7 +93,7 @@ make paper-run-mimiciv
 make verify-paper-mimiciv
 ```
 
-The preflight commands inspect configuration only and never open a database or clinical source. Authorized local deployments supply private roots and credentials through environment variables or an ignored override only after every reported blocker is resolved.
+The preflight command inspects configuration only and never opens a clinical source. Authorized execution supplies `MIMICIV_ROOT` and confirms `MIMICIV_RELEASE=v3.1`. Paper verification still requires actual count, selection, model, manuscript, and privacy reconciliation; configuration preflight alone is not a paper reproduction.
 
 ## Predictor window, outcome, and Charlson
 
@@ -110,43 +113,10 @@ See [`SECURITY_AND_PRIVACY.md`](SECURITY_AND_PRIVACY.md) and [`docs/output_dicti
 
 ## Reproducibility status
 
-The synthetic implementation, both adapters, leakage barriers, deterministic selection, and aggregate calculations are testable from a clean clone. Exact CHoRUS and MIMIC manuscript results require the unavailable authorized snapshots and confirmed local decisions. A count mismatch writes attrition plus final, attrition-stage, event-stage, or fold/domain selection comparisons and a failed diagnostic manifest before stopping. Paper verification recomputes the actual top-50/top-21 evidence, OOF fold identity, and matrix hashes; it also requires manuscript reconciliation and a completed `public_clinical` release gate.
+The synthetic implementation, both adapters, leakage barriers, deterministic selection, and aggregate calculations are testable from a clean clone. Exact CHoRUS and MIMIC manuscript results require authorized data and successful reconciliation. A count mismatch writes attrition plus final, attrition-stage, event-stage, or fold/domain selection comparisons and a failed diagnostic manifest before stopping. Paper verification recomputes the actual top-50/top-21 evidence, OOF fold identity, and matrix hashes; it also requires manuscript reconciliation and a completed `public_clinical` release gate.
 
-Selected models additionally receive held-out permutation-SHAP analysis using an outer-training background. Only fold-level mean absolute SHAP and cross-fold aggregate tables are written; the historical unified eight-matrix SHAP method remains unreconciled.
+One unified stage applies held-out permutation SHAP to the selected model for every matrix and fold. It verifies a deterministic reconstruction of each selected fit against stored OOF probabilities, uses an outer-training background and outer-validation evaluation sample, preserves model feature order, and writes only fold-level mean absolute and cross-fold aggregate values.
 
 Methods-to-code traceability is in [`docs/manuscript_methods_crosswalk.md`](docs/manuscript_methods_crosswalk.md). Citation metadata is in `CITATION.cff`.
 
 No license is granted for reuse or redistribution.
-
-## What this repository does
-
-The repository provides an executable, end-to-end framework for reproducing the study once authorized source data and confirmed study configurations are supplied. It:
-
-- Constructs landmarked acute-care mortality cohorts independently in CHoRUS and MIMIC-IV.
-- Derives baseline, physiological-severity, treatment-exposure, and procedure-burden predictors.
-- Enforces patient-level separation and training-fold-only feature selection and preprocessing.
-- Evaluates eight prespecified feature matrices using logistic regression, random forest, gradient boosting, and LightGBM.
-- Generates held-out out-of-fold predictions and aggregate discrimination, calibration, clinical-utility, decision-curve, and feature-importance outputs.
-- Records cohort attrition, source mappings, feature-selection decisions, partitions, configuration values, and reproducibility hashes.
-- Prevents patient-level data and unapproved clinical outputs from entering public artifacts.
-- Provides a complete privacy-safe synthetic demonstration for testing the implemented workflow.
-- Provides fail-closed paper-mode entry points for authorized CHoRUS and MIMIC-IV reproduction.
-
-The repository contains executable implementation code rather than pseudocode. However, the CHoRUS-specific implementation has not been run or validated against the protected CHoRUS environment, so it should currently be described as an unvalidated source-specific implementation rather than a completed reproduction of the CHoRUS analysis.
-
-## What is left
-
-The following work is required before the repository can be described as reproducing the manuscript analyses:
-
-1. Reconcile the feature-selection discrepancy between the completed historical scripts and the maintained manuscript description, including the ranking method, number of candidate medication concepts, and number of retained features per domain.
-2. Confirm the final SHAP procedure and reconcile it with the feature-importance results reported in the manuscript.
-3. Confirm the exact CHoRUS snapshot, source tables, column mappings, encounter definitions, concept mappings, measurement-unit rules, and governance requirements.
-4. Confirm the exact MIMIC-IV release and the final race, ethnicity, admission-type, medication, procedure, and death-date mappings.
-5. Tighten the frozen-runtime check so that it explicitly distinguishes the Ubuntu 24.04 reference environment from other Linux x86_64 systems.
-6. Run the finalized pipeline on authorized CHoRUS and MIMIC-IV data.
-7. Reconcile cohort attrition, final cohort counts, event counts, fold assignments, selected concepts and features, OOF predictions, performance estimates, clinical-utility analyses, calibration results, decision curves, and SHAP summaries with the manuscript.
-8. Complete the required disclosure and privacy review before releasing any aggregate clinical output.
-9. Obtain supervisor feedback on the final methodological specification, the framing of the CHoRUS code, and whether an authorized CHoRUS analyst can validate the mappings and execute the pipeline inside the private environment.
-10. Decide whether to add an open-source license before permitting reuse or redistribution.
-
-

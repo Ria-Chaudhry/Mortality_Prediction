@@ -16,7 +16,7 @@ from .runtime import validate_supported_runtime
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ATTRITION_STEPS = (
     "source encounters",
-    "adult age range",
+    "configured age range",
     "acute encounter type",
     "non-elective",
     "short-visit policy",
@@ -124,10 +124,30 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigurationError("Source mapping must be explicitly confirmed")
     if config["folds"]["count"] != 5:
         raise ConfigurationError("The scientific design requires exactly five folds")
+    if config["folds"].get("method") not in {
+        "historical_stratified_group_k_fold_v1",
+        "seeded_group_k_fold_v1",
+    }:
+        raise ConfigurationError("Unsupported patient-fold assignment method")
+    if config["cohort"].get("row_order_policy") not in {
+        "patient_start_visit_v1",
+        "start_patient_visit_v1",
+    }:
+        raise ConfigurationError("Unsupported cohort row-order policy")
+    if config["cohort"].get("predictor_window_end_policy") not in {
+        "admission_plus_window_v1",
+        "earliest_discharge_or_window_v1",
+    }:
+        raise ConfigurationError("Unsupported predictor-window end policy")
     if config["features"]["concept_count"] != 50:
         raise ConfigurationError("The scientific design requires 50 concepts per domain")
     if config["features"]["retained_derived_feature_count"] != 21:
         raise ConfigurationError("The requested design requires 21 retained features per domain")
+    for domain in ("measurements", "medications", "procedures"):
+        if config["features"][domain].get("expected_count") != 21:
+            raise ConfigurationError(
+                f"The requested design requires {domain}.expected_count=21"
+            )
     if config["features"].get("derived_feature_selection_rule") not in {
         "training_support_prevalence_v1",
         "mutual_information_after_training_median_v1",
@@ -150,16 +170,51 @@ def validate_config(config: dict[str, Any]) -> None:
         )
     if config["adapter"] == "mimiciv" and config["source"].get("layout") == "native":
         native = config["source"].get("native", {})
+        if native.get("event_linkage_policy") not in {
+            "direct_hadm_only_v1",
+            "direct_hadm_then_patient_time_v1",
+        }:
+            raise ConfigurationError(
+                "Native MIMIC event linkage policy is unresolved or unsupported"
+            )
+        if native.get("measurement_value_policy") not in {
+            "historical_numeric_only_v1",
+            "preserve_source_values_v1",
+        }:
+            raise ConfigurationError(
+                "Native MIMIC measurement value policy is unresolved or unsupported"
+            )
         if native.get("procedure_date_rule") != "calendar_dates_spanned_inclusive_v1":
             raise ConfigurationError(
                 "Native MIMIC procedure date rule is unresolved or unsupported"
             )
-        if native.get("death_rule", {}).get("identifier") != (
-            "precise_admission_deathtime_then_patient_dod_v1"
-        ):
+        if native.get("death_rule", {}).get("identifier") not in {
+            "precise_admission_deathtime_then_patient_dod_v1",
+            "historical_date_normalized_earliest_v1",
+        }:
             raise ConfigurationError(
                 "Native MIMIC death ascertainment rule is unresolved or unsupported"
             )
+        if native.get("medication_concept_rule") not in {
+            "historical_gsn_ndc_formulary_drug_v1",
+            "single_native_field_v1",
+        }:
+            raise ConfigurationError(
+                "Native MIMIC medication concept rule is unresolved or unsupported"
+            )
+        if config.get("paper_run"):
+            if config["source"].get("release_or_snapshot") != "v3.1":
+                raise ConfigurationError(
+                    "The recovered MIMIC paper configuration requires release v3.1"
+                )
+            if config["features"]["concept_count"] != 50:
+                raise ConfigurationError(
+                    "MIMIC paper mode requires exactly 50 concepts per domain"
+                )
+            if config["features"]["retained_derived_feature_count"] != 21:
+                raise ConfigurationError(
+                    "MIMIC paper mode requires exactly 21 derived features per domain"
+                )
     if config["cohort"]["landmark_hours"] != 24:
         raise ConfigurationError("The scientific design requires a 24-hour landmark")
     predictor_window = float(config["cohort"]["predictor_window_hours"])
@@ -218,7 +273,10 @@ def _paper_unresolved_fields(config: dict[str, Any]) -> list[str]:
         ):
             unresolved.append(".".join(path))
     release = config.get("paper", {}).get("release_clearance", {})
-    if release.get("small_cell_threshold") in {None, "UNCONFIRMED"}:
+    if (
+        release.get("classification") == "public_clinical"
+        and release.get("small_cell_threshold") in {None, "UNCONFIRMED"}
+    ):
         unresolved.append("paper.release_clearance.small_cell_threshold")
     if config.get("adapter") == "mimiciv":
         for key in ("mortality_rule_reconciled", "procedure_rule_reconciled"):

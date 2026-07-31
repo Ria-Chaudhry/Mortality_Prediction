@@ -5,14 +5,17 @@ cohort:
   max_age_years: 120
   landmark_hours: 24
   predictor_window_hours: 24
+  predictor_window_end_policy: earliest_discharge_or_window_v1
   outcome_horizon_days: 30
   prior_lookback_days: 365
   retain_short_visits: true
   require_verified_followup: true
+  row_order_policy: start_patient_visit_v1
   expected_counts: null
 folds:
   count: 5
   seed: 42
+  method: seeded_group_k_fold_v1
   require_both_classes: true
 outputs:
   public_root: outputs

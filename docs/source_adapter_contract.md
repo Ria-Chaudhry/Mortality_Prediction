@@ -45,7 +45,7 @@ The tested native path requires:
 | `patients` | `subject_id`, `gender`, `anchor_age`, `anchor_year`, `anchor_year_group`, `dod` |
 | `admissions` | `subject_id`, `hadm_id`, `admittime`, `dischtime`, `deathtime`, `admission_type`, `race` |
 | `diagnoses_icd` | `subject_id`, `hadm_id`, `seq_num`, `icd_code`, `icd_version` |
-| `labevents` | `labevent_id`, `subject_id`, `hadm_id`, `itemid`, `charttime`, `valuenum`, `valueuom` |
+| `labevents` | `labevent_id`, `subject_id`, `hadm_id`, `itemid`, configured time fields, `valuenum`, `valueuom`; paper mode uses `storetime` with `charttime` fallback |
 | optional `chartevents` | `subject_id`, `hadm_id`, `itemid`, `charttime`, `valuenum`, `valueuom`; stable internal event key |
 | `prescriptions` | `subject_id`, `hadm_id`, `pharmacy_id`, `poe_id`, `poe_seq`, `starttime`, `stoptime`, `drug`, `formulary_drug_cd`, `gsn`, `ndc` |
 | `procedures_icd` | `subject_id`, `hadm_id`, `seq_num`, `chartdate`, `icd_code`, `icd_version` |
@@ -54,12 +54,23 @@ All required columns are validated before analysis. The adapter does not require
 `anchor_birth_datetime`, `followup_end_datetime`, `admission_type_normalized`,
 `medication_event_id`, or `procedure_event_id`.
 
-Age follows the MIMIC anchor method. Race, ethnicity availability/derivation, and admission types
-require configured harmonization.
-The death/follow-up rule is explicit. Precise `admissions.deathtime` takes priority;
-`patients.dod` is retained as a date-only fallback and never converted to midnight. Source
-conflicts are audited, and a date-only landmark-day death is conservatively excluded without
-inventing a time. Medication concept field and source semantics are explicit.
+Age follows the MIMIC anchor method. Paper mode freezes MIMIC-IV v3.1, minimum age 0, the
+historical seven acute admission strings, and the recovered combined-race mapping.
+The death/follow-up rule is explicit. Paper mode normalizes `admissions.deathtime` and
+`patients.dod` to calendar dates, uses the earliest nonmissing date, excludes on/before the
+landmark date, and labels through day 30. The generic adapter also supports a separate
+precision-preserving `deathtime`-first policy; source conflicts are audited in either mode.
+Medication concepts use the recovered GSN, NDC, formulary-code, then normalized-drug-name
+fallback hierarchy, and source semantics remain explicit.
+Paper mode uses the recovered `direct_hadm_only_v1` event-linkage policy:
+measurement, medication, and procedure rows lacking a qualifying native
+`hadm_id` are excluded. The generic native path may instead explicitly select
+`direct_hadm_then_patient_time_v1`; that fallback is not attributed to the
+completed replication.
+Paper labevent extraction also freezes `historical_numeric_only_v1`, matching
+the completed removal of missing/non-numeric `valuenum` rows before the
+first-24-hour event count. Generic native runs can explicitly preserve source
+values and leave numeric eligibility to the shared feature layer.
 Measurement concepts are namespaced as `labevents:itemid` or `chartevents:itemid`; procedures use
 the recovered `icd{version}:{normalized code}` namespace. `procedures_icd.chartdate` stays date-only and uses
 the recovered `calendar_dates_spanned_inclusive_v1` rule: admission through predictor-end
@@ -70,5 +81,6 @@ Parquet uses column and predicate pushdown. CSV/CSV.GZ is read with `usecols` in
 then candidate `hadm_id`/`subject_id` and global time predicates are applied before pandas
 concatenation. Domain frames are never loaded with unrestricted whole-file `pandas.read_*`.
 
-The exact manuscript MIMIC release and follow-up choice remain unconfirmed. Native compatibility
-does not imply that an arbitrary MIMIC release reproduces the paper cohort.
+The recovered manuscript source release is MIMIC-IV v3.1. Native compatibility does not imply
+that another release reproduces the paper cohort, and configuration preflight is not evidence of
+a completed real-data reproduction.

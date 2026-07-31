@@ -5,11 +5,12 @@ synthetic: false
 source:
   layout: native
   root_env: MIMICIV_ROOT
-  release_or_snapshot: UNCONFIRMED
-  source_format: native MIMIC-IV CSV/CSV.GZ/Parquet
+  release_confirmation_env: MIMICIV_RELEASE
+  release_or_snapshot: v3.1
+  source_format: native MIMIC-IV v3.1 CSV/CSV.GZ/Parquet
   file_format: auto
   csv_chunksize: 250000
-  mapping_confirmed: false
+  mapping_confirmed: true
   tables:
     patients: patients
     encounters: admissions
@@ -18,59 +19,66 @@ source:
     medications: prescriptions
     procedures: procedures_icd
   native:
+    event_linkage_policy: direct_hadm_only_v1
+    measurement_value_policy: historical_numeric_only_v1
     measurement_sources: [labevents]
-    medication_concept_field: UNCONFIRMED
+    measurement_time_fields:
+      labevents: [storetime, charttime]
+    medication_concept_rule: historical_gsn_ndc_formulary_drug_v1
+    medication_concept_field: null
     medication_semantics: prescription
     procedure_semantics: coded
     procedure_date_rule: calendar_dates_spanned_inclusive_v1
     death_rule:
-      identifier: precise_admission_deathtime_then_patient_dod_v1
-      precise_source: admissions.deathtime
-      date_only_fallback_source: patients.dod
+      identifier: historical_date_normalized_earliest_v1
+      sources: [admissions.deathtime, patients.dod]
+      precision: calendar_date
+      combination: earliest_nonmissing_date
       date_only_landmark_day: exclude_as_on_or_before_landmark
-      inconsistent_sources: prefer_precise_and_audit
-    race_harmonization: {mode: identity}
-    ethnicity_harmonization: {mode: UNCONFIRMED}
-    admission_type_harmonization: UNCONFIRMED
-    elective_admission_types: [ELECTIVE]
-    followup_policy: UNCONFIRMED
+      inconsistent_sources: use_earliest_date_and_audit
+    race_harmonization:
+      mode: historical_combined_race_v1
+    ethnicity_harmonization:
+      mode: historical_combined_race_v1
+    admission_type_harmonization:
+      mode: historical_uppercase_identity_v1
+    acute_admission_types:
+      [AMBULATORY OBSERVATION, DIRECT EMER., DIRECT OBSERVATION,
+       EU OBSERVATION, EW EMER., OBSERVATION ADMIT, URGENT]
+    elective_admission_types: [ELECTIVE, SURGICAL SAME DAY ADMISSION]
+    followup_policy: assume_complete_death_capture
   deterministic_subsample:
     enabled: true
-    method: seeded_sha256_visit_rank
+    method: historical_random_patient_order_boundary_v1
     max_visits: 23000
     seed: 42
 paper:
   analysis_role: independent_replication
   exact_release_required: true
-  methodological_override_top21_confirmed: false
-  selection_rule_reconciled: false
-  shap_method_reconciled: false
-  mortality_rule_reconciled: false
-  procedure_rule_reconciled: false
-  selection_rule_blocker: >-
-    UNRESOLVED: completed replication scripts used mutual information after
-    training-fold median imputation, retained 15 measurement features, and
-    ranked 250 medication concepts; the maintained manuscript specifies
-    training-support prevalence, 21 features, and 50 concepts per domain.
-  shap_method_blocker: >-
-    UNRESOLVED: stage-specific held-out permutation-SHAP code was recovered,
-    but no completed unified eight-matrix reconciliation procedure was found.
-  mortality_rule_blocker: >-
-    UNRESOLVED: corrected precision-preserving mortality labels have not been
-    reconciled against the completed date-normalized replication output.
-  procedure_rule_blocker: >-
-    UNRESOLVED: the recovered calendar-date rule is implemented, but real
-    procedure counts and selected features have not been reconciled.
-  mapping_rules_confirmed: false
-  measurement_unit_rules_approved: false
+  methodological_override_top21_confirmed: true
+  selection_rule_reconciled: true
+  shap_method_reconciled: true
+  mortality_rule_reconciled: true
+  procedure_rule_reconciled: true
+  mapping_rules_confirmed: true
+  measurement_unit_rules_approved: true
   charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1
   charlson_mapping_version: quan-2005-charlson-icd9cm-icd10cm-v1
-  expected_counts: {visits: 23000, patients: 10009, deaths: 819}
-  expected_attrition_counts: UNCONFIRMED
-  expected_event_counts: UNCONFIRMED
-  expected_event_count_stages:
-    [source, linked_direct, linked_bridge, linked_patient_time, unmatched,
-     outside_predictor_window, qualifying]
+  expected_counts: {visits: 23000, patients: 10006, deaths: 819}
+  expected_attrition_counts:
+    source encounters: {visits: 546028, patients: 223452}
+    configured age range: {visits: 546028, patients: 223452}
+    acute encounter type: {visits: 490000, patients: 211180}
+    non-elective: {visits: 490000, patients: 211180}
+    short-visit policy: {visits: 489827, patients: 211109}
+    alive after 24-hour landmark: {visits: 487577, patients: 209909}
+    verified 30-day follow-up: {visits: 487577, patients: 209909}
+    deterministic dataset subsample: {visits: 23000, patients: 10006}
+  expected_event_count_stages: [qualifying]
+  expected_event_counts:
+    measurements.qualifying: 638756
+    medications.qualifying: 374658
+    procedures.qualifying: 17130
   expected_selection_counts:
     selected_concepts_per_fold_domain: 50
     selected_features_per_fold_domain: 21
@@ -78,33 +86,63 @@ paper:
     candidate_medications: 104
     candidate_procedures: 103
   expected_count_tolerances: {default: 0}
-  expected_resolved_config_hash: UNCONFIRMED
+  expected_resolved_config_hash: 368b230fa0b49dbc33e26f85beee80f1a5ffaeca81766245741a93fc44bbc5d7
   mapping_file_hashes:
-    mimic_mapping.csv: 7a25e22c56f073ad2086095d2ce70ad04298f92697793a17784ddec3d361df0d
+    mimic_mapping.csv: aed91bda7e9cfce92f6f6b6bb235c6c4e7da53eb4da415d9e0338a285cb0fa63
     charlson_mapping.csv: 8fd72969d9804ab85334d875045e5df8ea25743d0e7140ad15499f7e752ea4fc
   release_clearance:
     classification: restricted
     approved: false
-    small_cell_threshold: UNCONFIRMED
+    small_cell_threshold: null
   manuscript_reconciled: false
 frozen_design:
   predictor_window_hours: 24
+  predictor_window_end_policy: admission_plus_window_v1
   landmark_hours: 24
   outcome_horizon_days: 30
-  adult_min_age_years: 18
+  minimum_age_years: 0
+  maximum_age_years: 120
   prior_charlson_lookback_days: 365
   deduplication: preserve_native_multiplicity_with_stable_internal_keys
-  subsampling: {enabled: true, method: seeded_sha256_visit_rank, seed: 42, target: 23000}
-  patient_folds: {method: seeded_group_k_fold, count: 5, seed: 42}
+  subsampling:
+    enabled: true
+    method: historical_random_patient_order_boundary_v1
+    seed: 42
+    target: 23000
+  patient_folds: {method: historical_stratified_group_k_fold_v1, count: 5, seed: 42}
+  row_order: patient_start_visit_v1
   top_concepts_per_domain: 50
   retained_derived_features_per_domain: 21
-  derived_feature_ranking: pre_imputation_training_visit_support_proportion
-  derived_feature_selection_rule: training_support_prevalence_v1
+  derived_feature_ranking: training_fold_mutual_information_after_training_median
+  derived_feature_selection_rule: mutual_information_after_training_median_v1
   matrices: 8
   models: [logistic_regression, random_forest, gradient_boosting, lightgbm]
 overrides:
   cohort:
-    expected_counts: {visits: 23000, patients: 10009, deaths: 819}
+    acute_visit_types:
+      [AMBULATORY OBSERVATION, DIRECT EMER., DIRECT OBSERVATION,
+       EU OBSERVATION, EW EMER., OBSERVATION ADMIT, URGENT]
+    min_age_years: 0
+    max_age_years: 120
+    predictor_window_end_policy: admission_plus_window_v1
+    row_order_policy: patient_start_visit_v1
+    expected_counts: {visits: 23000, patients: 10006, deaths: 819}
+  features:
+    derived_feature_selection_rule: mutual_information_after_training_median_v1
+    derived_feature_ranking: training_fold_mutual_information_after_training_median
+    derived_feature_tie_break: feature_name_ascending
+    minimum_training_support_for_selection: 50
+    measurements:
+      unit_policy: training_mode
+      allowed_units: {}
+      conversions: {}
+  models:
+    shap:
+      background_rows: 50
+      evaluation_rows: 100
+      cross_fold_aggregation: mean_over_folds_where_feature_selected_v1
+  folds:
+    method: historical_stratified_group_k_fold_v1
   outputs:
     public_root: outputs/paper
     restricted_root: restricted_outputs/paper

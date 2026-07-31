@@ -8,19 +8,27 @@ encounters,visit_id,admissions,hadm_id,direct identifier retained only in restri
 encounters,patient_id,admissions,subject_id,direct
 encounters,start_datetime,admissions,admittime,direct
 encounters,end_datetime,admissions,dischtime,direct
-encounters,visit_type,admissions,admission_type,explicit configured harmonization required
-encounters,race,admissions,race,explicit configured harmonization required
-deaths,death_datetime,patients,dod,earliest nonmissing dod or admissions.deathtime
-deaths,death_datetime,admissions,deathtime,earliest nonmissing dod or deathtime
+encounters,visit_type,admissions,admission_type,uppercase stripped identity; recovered acute allowlist applied separately
+encounters,race,admissions,race,recovered historical substring mapping
+encounters,ethnicity,admissions,race,Hispanic/Latino then unknown substring mapping
+deaths,death_date,patients,dod,normalize to calendar date and take earliest with index-admission deathtime
+deaths,death_date,admissions,deathtime,normalize to calendar date and take earliest with patient dod
 diagnoses,code,diagnoses_icd,icd_code,direct
 diagnoses,icd_version,diagnoses_icd,icd_version,required version-aware Charlson input
 measurements,concept_key,labevents,itemid,namespaced as labevents:itemid
-measurements,event_datetime,labevents,charttime,direct
-measurements,value,labevents,valuenum,numeric only
+measurements,source_visit_id,labevents,hadm_id,paper mode requires qualifying nonmissing hadm_id
+measurements,event_datetime,labevents,storetime,preferred historical availability time
+measurements,event_datetime,labevents,charttime,fallback when storetime missing
+measurements,value,labevents,valuenum,paper mode retains numeric values only; generic native mode may preserve source values for shared eligibility
 measurements,unit,labevents,valueuom,direct
-medications,concept_key,prescriptions,formulary_drug_cd,configurable among formulary_drug_cd gsn ndc drug
+medications,concept_key,prescriptions,gsn,first nonempty of gsn ndc formulary_drug_cd normalized drug
+medications,source_visit_id,prescriptions,hadm_id,paper mode requires qualifying nonmissing hadm_id
+medications,concept_key,prescriptions,ndc,fallback after gsn
+medications,concept_key,prescriptions,formulary_drug_cd,fallback after gsn and ndc
+medications,concept_key,prescriptions,drug,normalized-name final fallback
 medications,event_datetime,prescriptions,starttime,prescription timing
 medications,semantics,prescriptions,,explicit configured prescription/order/dispensing/administration label
 procedures,concept_key,procedures_icd,icd_code,namespaced with source and icd_version
+procedures,source_visit_id,procedures_icd,hadm_id,paper mode requires qualifying nonmissing hadm_id
 procedures,event_datetime,procedures_icd,chartdate,coded procedure date
 procedures,semantics,procedures_icd,,explicit configured coded/performed/order/imaging/other label

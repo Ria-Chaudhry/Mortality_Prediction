@@ -107,13 +107,27 @@ def report_observed_freeze_hashes(root: Path) -> int:
         / "expected_outputs"
         / "expected_aggregate_hashes.json"
     )
+    candidate = {
+        key: expected[key]
+        for key in (
+            "format_version",
+            "canonical_float_decimal_places",
+            "reference_runtime",
+        )
+    }
+    candidate["datasets"] = {}
     reported = 0
     for dataset in ("chorus", "mimiciv"):
         dataset_dir = root / dataset
         frozen = expected["datasets"][dataset]
+        actual_names = sorted(
+            path.relative_to(dataset_dir).as_posix()
+            for path in dataset_dir.rglob("*")
+            if path.is_file() and path.name != "run_manifest.json"
+        )
         observed = {
             relative: _canonical_artifact_hash(dataset_dir / relative)
-            for relative in frozen["artifact_names"]
+            for relative in actual_names
         }
         changed = {
             relative: digest
@@ -121,26 +135,45 @@ def report_observed_freeze_hashes(root: Path) -> int:
             if digest != frozen["artifact_hashes"].get(relative)
         }
         payload = {
+            "artifact_names": actual_names,
             "changed_artifact_hashes": changed,
             "safe_run_manifest_hash": hash_object(
                 _safe_run_manifest(read_json(dataset_dir / "run_manifest.json"))
             ),
+        }
+        candidate["datasets"][dataset] = {
+            "artifact_names": actual_names,
+            "artifact_hashes": observed,
+            "safe_run_manifest_hash": payload["safe_run_manifest_hash"],
         }
         _emit(
             f"Ubuntu freeze hashes: {dataset}",
             json.dumps(payload, sort_keys=True, separators=(",", ":")),
         )
         reported += 1
+    candidate["safe_parent_manifest_hash"] = hash_object(
+        _safe_parent_manifest(read_json(root / "run_manifest.json"))
+    )
+    candidate["synthetic_run_summary_hash"] = _canonical_artifact_hash(
+        root / "synthetic_run_summary.csv"
+    )
+    candidate_path = Path("outputs/test-reports/observed_freeze_candidate.json")
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    candidate_path.write_text(
+        json.dumps(candidate, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     _emit(
         "Ubuntu freeze hashes: parent",
         json.dumps(
             {
-                "safe_parent_manifest_hash": hash_object(
-                    _safe_parent_manifest(read_json(root / "run_manifest.json"))
-                ),
-                "synthetic_run_summary_hash": _canonical_artifact_hash(
-                    root / "synthetic_run_summary.csv"
-                ),
+                "safe_parent_manifest_hash": candidate[
+                    "safe_parent_manifest_hash"
+                ],
+                "synthetic_run_summary_hash": candidate[
+                    "synthetic_run_summary_hash"
+                ],
+                "complete_candidate": candidate_path.as_posix(),
             },
             sort_keys=True,
             separators=(",", ":"),

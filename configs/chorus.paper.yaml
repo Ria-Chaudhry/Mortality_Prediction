@@ -94,12 +94,12 @@ paper:
   selection_rule_reconciled: false
   shap_method_reconciled: false
   selection_rule_blocker: >-
-    UNRESOLVED: the maintained manuscript specifies training-support prevalence
-    and 21 features, while completed MIMIC scripts used mutual information and
-    retained 15 measurement features.
+    UNRESOLVED: the completed MIMIC scripts establish a training-fold mutual
+    information selector, but no protected CHoRUS analysis artifact confirms
+    that the primary analysis used the same final 21-column rule.
   shap_method_blocker: >-
-    UNRESOLVED: no completed unified eight-matrix CHoRUS/MIMIC SHAP execution
-    establishing the manuscript reconciliation procedure was recovered.
+    UNRESOLVED: the recovered MIMIC held-out permutation-SHAP procedure does not
+    confirm the protected CHoRUS manuscript analysis.
   mapping_rules_confirmed: false
   measurement_unit_rules_approved: false
   charlson_algorithm: quan-2005-charlson-icd9cm-icd10cm-v1

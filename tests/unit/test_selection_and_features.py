@@ -214,9 +214,24 @@ def test_row_loss_in_domain_matrix_hard_fails(cohort_result, chorus_config):
 
 
 @pytest.mark.parametrize("domain", ["measurements", "medications", "procedures"])
+@pytest.mark.parametrize(
+    "selection_rule",
+    [
+        "training_support_prevalence_v1",
+        "mutual_information_after_training_median_v1",
+    ],
+)
 def test_validation_changes_cannot_change_top50_or_top21(
-    domain, prepared_events, fold_result, cohort_result, chorus_config
+    domain,
+    selection_rule,
+    prepared_events,
+    fold_result,
+    cohort_result,
+    chorus_config,
 ):
+    config = deepcopy(chorus_config)
+    config["features"]["derived_feature_selection_rule"] = selection_rule
+    config["features"]["minimum_training_support_for_selection"] = 1
     fold = 0
     training = _training_sets(fold_result, fold)
     validation = set(
@@ -226,14 +241,14 @@ def test_validation_changes_cannot_change_top50_or_top21(
     )
     original_events = prepared_events.events[domain]
     original_selection = select_concepts(
-        original_events, training, domain, fold, chorus_config
+        original_events, training, domain, fold, config
     )
     original_features = build_fold_domain_features(
         cohort_result.cohort,
         original_selection,
         original_events,
         training,
-        chorus_config,
+        config,
     )
     changed = original_events.copy()
     validation_mask = changed["cohort_visit_number"].isin(validation)
@@ -241,14 +256,14 @@ def test_validation_changes_cannot_change_top50_or_top21(
     changed.loc[validation_mask, "concept_name"] = "validation only"
     changed.loc[validation_mask, "value"] = 1e12
     changed_selection = select_concepts(
-        changed, training, domain, fold, chorus_config
+        changed, training, domain, fold, config
     )
     changed_features = build_fold_domain_features(
         cohort_result.cohort,
         changed_selection,
         changed,
         training,
-        chorus_config,
+        config,
     )
     outcome_changed_cohort = cohort_result.cohort.copy()
     outcome_changed_cohort.loc[
@@ -261,7 +276,7 @@ def test_validation_changes_cannot_change_top50_or_top21(
         original_selection,
         original_events,
         training,
-        chorus_config,
+        config,
     )
     assert original_selection.selected["concept_key"].tolist() == changed_selection.selected[
         "concept_key"
@@ -300,6 +315,51 @@ def test_domain_feature_definitions_are_reused_across_matrices(
                 actual = [column for column in matrix.columns if column in expected]
                 assert actual == expected
                 assert len(actual) == 21
+
+
+def test_recovered_medication_mi_screen_uses_nonzero_support_not_minority_class(
+    chorus_config,
+):
+    config = deepcopy(chorus_config)
+    config["features"][
+        "derived_feature_selection_rule"
+    ] = "mutual_information_after_training_median_v1"
+    config["features"]["minimum_training_support_for_selection"] = 5
+    cohort = pd.DataFrame(
+        {
+            "cohort_visit_number": range(1, 61),
+            "outcome": [visit % 2 for visit in range(1, 61)],
+        }
+    )
+    events = pd.DataFrame(
+        [
+            _event(visit, f"c{concept:02d}")
+            for visit in range(1, 61)
+            for concept in range(50)
+            if visit != concept + 1
+        ]
+    )
+    events["hours_from_start"] = 12.0
+    selection = select_concepts(
+        events,
+        set(cohort["cohort_visit_number"]),
+        "medications",
+        0,
+        config,
+    )
+    features = build_fold_domain_features(
+        cohort,
+        selection,
+        events,
+        set(cohort["cohort_visit_number"]),
+        config,
+    )
+    exposure_rows = features.selection_audit.loc[
+        features.selection_audit["summary_type"].eq("exposure")
+    ]
+    assert len(exposure_rows) == 50
+    assert set(exposure_rows["training_support_count"]) == {59}
+    assert set(exposure_rows["eligibility_status"]) == {"eligible"}
 
 
 def _event(visit, concept, unit="u"):

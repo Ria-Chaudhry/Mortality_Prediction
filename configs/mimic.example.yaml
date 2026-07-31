@@ -20,7 +20,12 @@ source:
     medications: prescriptions
     procedures: procedures_icd
   native:
+    event_linkage_policy: direct_hadm_then_patient_time_v1
+    measurement_value_policy: preserve_source_values_v1
     measurement_sources: [labevents]
+    measurement_time_fields:
+      labevents: [charttime]
+    medication_concept_rule: single_native_field_v1
     medication_concept_field: formulary_drug_cd
     medication_semantics: prescription
     procedure_semantics: coded
@@ -45,6 +50,8 @@ source:
 paper_run: false
 synthetic: true
 overrides:
+  cohort:
+    min_age_years: 0
   features:
     medications:
       qualifying_semantics: [administration, prescription, order]

@@ -13,9 +13,11 @@ frozen cohort -> frozen patient folds -> linked predictor-window events
         |
 outer-training top 50 concepts -> candidate columns
         |
-outer-training support rank -> exactly 21 derived columns/domain -> eight matrices
+outer-training configured derived selector -> exactly 21 columns/domain -> eight matrices
         |
-training-only preprocessing/model -> held-out probabilities + selected-model held-out SHAP
+training-only preprocessing/model -> held-out probabilities
+        |
+verified OOF-equivalent selected fold fit -> unified held-out permutation SHAP
         |
 OOF fold-identity validation -> aggregate analyses -> classified artifacts
 ```
@@ -29,6 +31,10 @@ evaluation, and audit code consumes standardized frames.
 One run accepts one dataset. The same fold/domain feature object is reused by every matrix
 containing that domain. There is no transfer of outcomes, concepts, folds, preprocessing, or
 models between CHoRUS and MIMIC.
+
+MIMIC paper mode freezes the completed patient/start/visit row order and
+five-fold shuffled `StratifiedGroupKFold` with seed 42. The generic grouped-fold
+method is a separate configuration value rather than an implicit substitute.
 
 Real output roots are restricted by default. A clinical aggregate becomes `public_clinical` only
 after an actual allowlist/small-cell scan runs and passes with explicit approval. Synthetic

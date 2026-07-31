@@ -32,8 +32,10 @@ def read_table(
     path: str | Path,
     *,
     columns: list[str],
+    dtypes: dict[str, str] | None = None,
     allowed_values: dict[str, set[Any]] | None = None,
     allowed_any: dict[str, set[Any]] | None = None,
+    primary_or_fallback: tuple[str, set[Any], str, set[Any]] | None = None,
     time_bounds: tuple[str, pd.Timestamp, pd.Timestamp] | None = None,
     chunksize: int = 250_000,
 ) -> pd.DataFrame:
@@ -63,19 +65,37 @@ def read_table(
             expression = (
                 any_expression if expression is None else expression & any_expression
             )
+        if primary_or_fallback:
+            primary, primary_values, fallback, fallback_values = (
+                primary_or_fallback
+            )
+            condition = ds.field(primary).isin(
+                sorted(primary_values, key=str)
+            ) | (
+                ds.field(primary).is_null()
+                & ds.field(fallback).isin(
+                    sorted(fallback_values, key=str)
+                )
+            )
+            expression = condition if expression is None else expression & condition
         if time_bounds:
             name, lower, upper = time_bounds
             condition = (ds.field(name) >= lower.to_pydatetime()) & (
                 ds.field(name) < upper.to_pydatetime()
             )
             expression = condition if expression is None else expression & condition
-        return dataset.to_table(columns=columns, filter=expression).to_pandas()
+        frame = dataset.to_table(columns=columns, filter=expression).to_pandas()
+        for name, dtype in (dtypes or {}).items():
+            if name in frame:
+                frame[name] = frame[name].astype(dtype)
+        return frame
     if resolved.suffix == ".csv" or suffixes[-2:] == [".csv", ".gz"]:
         parts: list[pd.DataFrame] = []
         try:
             iterator = pd.read_csv(
                 resolved,
                 usecols=columns,
+                dtype=dtypes,
                 chunksize=chunksize,
                 low_memory=False,
             )
@@ -88,6 +108,14 @@ def read_table(
                     for name, values in allowed_any.items():
                         any_keep |= chunk[name].isin(values)
                     keep &= any_keep
+                if primary_or_fallback:
+                    primary, primary_values, fallback, fallback_values = (
+                        primary_or_fallback
+                    )
+                    keep &= chunk[primary].isin(primary_values) | (
+                        chunk[primary].isna()
+                        & chunk[fallback].isin(fallback_values)
+                    )
                 if time_bounds:
                     name, lower, upper = time_bounds
                     times = pd.to_datetime(chunk[name], errors="coerce")

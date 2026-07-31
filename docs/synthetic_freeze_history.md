@@ -1,5 +1,30 @@
 # Synthetic freeze history
 
+## July 30, 2026 MIMIC-method and unified-SHAP correction
+
+This analytical baseline changes because the implementation now records a
+combined fold-level concept/candidate/matrix-use audit, applies the recovered
+training-fold mutual-information selector in MIMIC paper mode, and runs one
+held-out permutation-SHAP path across all eight matrices. The native MIMIC
+adapter also now implements the recovered v3.1 admission, race/ethnicity,
+medication-identifier, mortality-date, procedure-date, and patient-subsampling
+rules. The synthetic selector remains training-support prevalence so its
+validation-isolation and deterministic tie behavior can be tested directly.
+
+Before proposing any reference update, two complete executions under the
+locked CPython 3.10.13 environment produced identical aggregate artifacts,
+including identical child run IDs:
+
+- CHoRUS:
+  `594071a371a50433a3a0bcd7198742de0a4d388365604d1afc30667ed0d67f95`
+- MIMIC-IV:
+  `503a75b1d1390e5ee484cfdafa6c12a3ab892f13b2b094e4e50309e06cafb4bd`
+
+The deterministic synthetic summary hash was
+`442ecdf8af727b56c84971c047574db65041fcab1fdb8841f2a8d522167f7331`.
+The Linux x86_64 fitted-model reference must still be regenerated and checked
+on the pinned Ubuntu runtime; a macOS baseline is not substituted for it.
+
 ## July 29, 2026 derived-float portability boundary
 
 Clean Ubuntu and macOS executions with the same CPython and dependency lock

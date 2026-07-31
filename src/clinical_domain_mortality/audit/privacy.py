@@ -146,7 +146,8 @@ PUBLIC_CLINICAL_TABLE_SCHEMAS: dict[str, tuple[str, ...]] = {
     "shap_summary.csv": (
         "dataset", "feature_matrix", "model", "feature", "clinical_domain",
         "source_concept", "summary_type", "explainer", "mean_absolute_shap",
-        "folds", "rank",
+        "folds", "mean_background_rows", "mean_evaluation_rows", "rank",
+        "fold_aggregation_policy",
     ),
 }
 
@@ -202,6 +203,7 @@ PUBLIC_CLINICAL_JSON_SCHEMAS: dict[str, frozenset[str] | None] = {
         "derived_feature_selection_count", "derived_selection_hashes",
         "derived_feature_ranking", "derived_feature_tie_break",
         "retained_per_domain_per_fold", "training_folds_only",
+        "combined_audit_rows",
     }),
 }
 

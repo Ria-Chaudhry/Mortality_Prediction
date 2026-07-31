@@ -116,6 +116,27 @@ def test_both_adapters_end_to_end(tmp_path):
         assert set(shap_folds["evaluation_partition"]) == {
             "outer_validation_fold"
         }
+        assert set(shap_folds["background_partition"]) == {
+            "outer_training_fold"
+        }
+        assert set(shap_folds["feature_matrix"]) == {
+            "baseline",
+            "baseline_measurements",
+            "baseline_medications",
+            "baseline_procedures",
+            "baseline_measurements_medications",
+            "baseline_measurements_procedures",
+            "baseline_medications_procedures",
+            "baseline_all_domains",
+        }
+        assert len(
+            shap_folds[["outer_fold", "feature_matrix"]].drop_duplicates()
+        ) == 40
+        assert not any(
+            "shap_value" in path.name
+            for path in (public / dataset).rglob("*")
+            if path.is_file()
+        )
         for matrix, model in best_models.items():
             assert set(
                 shap_folds.loc[

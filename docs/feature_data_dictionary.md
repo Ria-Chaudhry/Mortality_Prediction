@@ -27,9 +27,9 @@ procedure zeros mean no qualifying record, not proof that care was absent.
 
 ## Final 21 derived model columns
 
-The 300/104/103 candidate columns are ranked before imputation using outer-training visits only.
-Twenty-one means final matrix columns, not concepts; several summaries from one concept may be
-selected:
+The 300/104/103 candidates carry pre-imputation support evidence calculated from outer-training
+visits only. Twenty-one means final matrix columns, not concepts; several summaries from one
+concept may be selected:
 
 - measurement mean/max/min/SD are available when nonmissing;
 - a measurement count occurs when positive;
@@ -37,14 +37,16 @@ selected:
 - medication/procedure exposure, count, and numeric aggregates occur when positive;
 - time-to-first-drug is available when nonmissing.
 
-Rank is descending training-visit support proportion, then frozen candidate-construction order.
+The synthetic rule ranks support proportion descending, then candidate-construction order. The
+MIMIC paper configuration freezes the recovered completed-analysis rule: apply training
+support/nonvariance eligibility, fit median imputation on training values, score
+`mutual_info_classif` against training outcomes, and rank by score descending then feature name
+ascending. No validation value, outcome, missingness pattern, unit, or preprocessing fit enters
+either rule.
+
 Exactly 21 columns per domain are retained and applied unchanged to validation visits. The same
 fold/domain list is reused in every matrix containing that domain. The audit records rank,
-source concept, summary type, training support count/proportion, score, explicit tie-break value,
-rule identifier/version, selected status, and selection hash for every candidate.
-
-This rule is unsupervised and contains no outcome, validation frequency, validation missingness,
-unit choice, or fitted preprocessing information. Completed replication scripts instead used
-mutual information and did not agree on 21 measurement columns or 50 medication concepts; the
-maintained manuscript describes frequency. Paper mode therefore fails closed pending
-reconciliation. See `recovered_method_provenance.md`.
+source concept, summary type, training support count/proportion, selection score, explicit
+tie-break value, eligibility reason, rule/version, selected status, and selection hash for every
+candidate. The historical medication stage used 250 concepts; the required corrected design
+overrides it to 50. See `recovered_method_provenance.md`.

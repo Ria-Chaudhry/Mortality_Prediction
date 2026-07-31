@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 
 from ..errors import IntegrityError
 from ..hashing import hash_frame
@@ -22,16 +22,34 @@ class FoldResult:
 def create_patient_folds(cohort: pd.DataFrame, config: dict[str, Any]) -> FoldResult:
     count = int(config["folds"]["count"])
     seed = int(config["folds"]["seed"])
+    method = str(
+        config["folds"].get("method", "seeded_group_k_fold_v1")
+    )
     working = cohort[
         ["cohort_visit_number", "patient_id", "outcome"]
     ].copy()
-    working["_patient_order"] = working["patient_id"].map(
-        lambda value: _stable_key(str(value), seed)
-    )
-    working = working.sort_values(
-        ["_patient_order", "patient_id", "cohort_visit_number"], kind="stable"
-    ).reset_index(drop=True)
-    splitter = GroupKFold(n_splits=count, shuffle=True, random_state=seed)
+    if method == "historical_stratified_group_k_fold_v1":
+        working = working.reset_index(drop=True)
+        splitter = StratifiedGroupKFold(
+            n_splits=count,
+            shuffle=True,
+            random_state=seed,
+        )
+    elif method == "seeded_group_k_fold_v1":
+        working["_patient_order"] = working["patient_id"].map(
+            lambda value: _stable_key(str(value), seed)
+        )
+        working = working.sort_values(
+            ["_patient_order", "patient_id", "cohort_visit_number"],
+            kind="stable",
+        ).reset_index(drop=True)
+        splitter = GroupKFold(
+            n_splits=count,
+            shuffle=True,
+            random_state=seed,
+        )
+    else:
+        raise IntegrityError(f"Unsupported patient-fold method: {method}")
     working["fold"] = -1
     for fold, (_, validation) in enumerate(
         splitter.split(working, working["outcome"], groups=working["patient_id"])
