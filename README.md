@@ -2,8 +2,6 @@
 
 This repository implements a mortality-prediction workflow for a CHoRUS primary analysis and an independent MIMIC-IV replication. It predicts death after a 24-hour landmark and within 30 days of acute-care admission from baseline factors and early measurement, medication, and procedure records.
 
-The public synthetic execution is tested. Native MIMIC-IV file normalization is tested end to end with native-shaped synthetic tables. CHoRUS column-projected cohort-first SQL planning is regression tested, but no protected CHoRUS database has been accessed. No real-data paper reproduction or release-cleared clinical result is included or claimed.
-
 ## Study workflow
 
 Each dataset is run independently; outcomes, patients, concepts, folds, models, and predictions are never transferred or pooled. The pipeline:
