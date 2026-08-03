@@ -20,8 +20,6 @@ Each dataset is run independently; outcomes, patients, concepts, folds, models, 
 
 The eight matrices are baseline, three single-domain additions, three pairwise additions, and all domains. Logistic regression, random forest, gradient boosting, and LightGBM give 160 outer-fold fits and 32 OOF probabilities per visit in each dataset.
 
-The completed MIMIC measurement and procedure scripts used 50 concepts and 21 final columns; the medication script used 250 concepts and 21 columns. All three used outer-training mutual information after training-median imputation for the final 21. The required corrected design overrides medication to 50 concepts and preserves 21 columns in every domain. That deviation is explicit and must be reconciled on protected data before any paper-reproduction claim. See [`docs/recovered_method_provenance.md`](docs/recovered_method_provenance.md).
-
 ## Install and test
 
 Execution and same-runtime repeat checks support CPython 3.10.13 exactly:
