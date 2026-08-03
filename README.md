@@ -119,4 +119,8 @@ One unified stage applies held-out permutation SHAP to the selected model for ev
 
 Methods-to-code traceability is in [`docs/manuscript_methods_crosswalk.md`](docs/manuscript_methods_crosswalk.md). Citation metadata is in `CITATION.cff`.
 
-No license is granted for reuse or redistribution.
+## License
+
+This repository is released under the MIT License. The license applies only to the code in this repository.
+
+No patient-level CHoRUS or MIMIC-IV data are included or redistributed. Users are responsible for obtaining independent access to CHoRUS and/or MIMIC-IV and for complying with all applicable data-use agreements, institutional approvals, and governance requirements.
