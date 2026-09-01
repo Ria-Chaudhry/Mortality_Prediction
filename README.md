@@ -1,122 +1,226 @@
-# Clinical-domain mortality prediction framework
+# Clinical-Domain Mortality Prediction Framework
 
-This repository implements a mortality prediction workflow for a CHoRUS primary analysis and an independent MIMIC-IV replication. It predicts death after a 24 hour landmark and within 30 days of acute-care admission from baseline factors and early measurement, medication, and procedure records.
+This repository contains the analysis framework and implementation associated with:
 
-## Study workflow
+**Assessing Clinical Features for Mortality Prediction in CHoRUS Clinical Care for AI and MIMIC-IV Datasets**
 
-Each dataset is run independently; outcomes, patients, concepts, folds, models, and predictions are never transferred or pooled. The pipeline:
+The study evaluates the relative predictive value of routinely available early clinical data streams for visit-level 30-day mortality prediction using:
 
-1. Projects configured columns and applies cohort/time predicates before loading large domains.
-2. Freezes the configured age range, non-elective acute encounters, row order, the outcome, and baseline.
-3. Assigns patients, not encounters, to one frozen five-fold partition. MIMIC
-   paper mode reproduces the completed patient/start/visit row order and seeded
-   shuffled `StratifiedGroupKFold`; other runs use their configured versioned
-   grouped-fold policy.
-4. Within each outer fold and domain, ranks 50 concepts using distinct training visits only.
-5. Constructs 300 measurement, 104 medication, or 103 procedure candidate columns.
-6. Retains exactly 21 final matrix columns per domain using the configured outer-training-only rule: support prevalence for the synthetic demonstration and the recovered training median/mutual information rule for MIMIC paper mode.
-7. Reuses the same fold specific 21 columns in every matrix containing that domain.
-8. Fits all learned preprocessing and each model on outer-training visits only, then creates one held-out positive-class probability per visit, matrix, and model.
+- CHoRUS Clinical Care for AI version 1
+- MIMIC-IV version 3.1
 
-The eight matrices are baseline, three single domain additions, three pairwise additions, and all domains. Logistic regression, random forest, gradient boosting, and LightGBM give 160 outer fold fits and 32 OOF probabilities per visit in each dataset.
+The repository provides code for cohort construction, feature construction, patient-grouped cross-validation, model evaluation, and secondary analyses. Patient-level CHoRUS and MIMIC-IV data are not included.
 
-## Install and test
+## Study objective
 
-Execution and same runtime repeat checks support CPython 3.10.13 exactly:
+The analysis evaluates four clinical data streams:
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-make install
-make lint
-make test
-make test-full
-```
+1. Baseline vulnerability
+2. Physiological severity
+3. Treatment exposure
+4. Procedure burden
 
-`requirements.lock` is fully pinned and is the file installed by CI.
+The goal is to quantify the incremental and complementary predictive information contributed by these domains within a common modeling framework.
 
-## Public synthetic demonstration
+Eight feature matrices are evaluated:
 
-No credential, protected data, database, or network resource is needed after installation:
+- Baseline
+- Baseline + physiological severity
+- Baseline + treatment exposure
+- Baseline + procedure burden
+- Baseline + physiological severity + treatment exposure
+- Baseline + physiological severity + procedure burden
+- Baseline + treatment exposure + procedure burden
+- Baseline + all clinical data streams
 
-```bash
-make synthetic-run
-make verify
-```
+CHoRUS and MIMIC-IV are analyzed independently. Models, patients, predictions, and outcome labels are not transferred between datasets.
 
-The MIMIC synthetic run directly consumes official shaped native tables. Verification pins the complete deterministic aggregate artifact set, safe run manifest fields, schemas, design counts, and canonical calculation hashes. Public floating-point outputs are serialized at ten decimal places. Derived floating-point features are first canonicalized at the configured eight decimal boundary before hashing, preprocessing, or fitting so platform level aggregation noise cannot change tree split ties. Same run manifests verify exact file bytes.
+## Prediction window and outcome
 
-Exact frozen fitted model verification is intentionally narrower because pinned scikit-learn tree builds can make different tied split choices across operating systems even with identical inputs, versions, seeds, and one thread. The reference platform is CPython 3.10.13 on Linux x86_64; CI pins Ubuntu 24.04. `make verify` fails closed elsewhere rather than accepting a different fitted model baseline. On another platform, dataset-level structural and exact same run checks remain available with:
+The prediction anchor is 24 hours after encounter start.
 
-```bash
-clinical-domain-mortality verify --run-dir outputs/synthetic/chorus
-clinical-domain-mortality verify --run-dir outputs/synthetic/mimiciv
-```
+For encounters lasting at least 24 hours, predictors are restricted to the first 24 hours after encounter start.
 
-Patient level cohort, feature, fold, event, and OOF files remain under ignored `restricted_outputs/`.
+For encounters lasting less than 24 hours, the entire encounter from encounter start through encounter end is used as the predictor window.
 
-Updating expected synthetic outputs is intentionally separate from verification and requires review plus:
+Encounters in which death occurred before or at 24 hours after encounter start are excluded because the outcome had already occurred by the prediction landmark.
 
-```bash
-make freeze-synthetic-expected
-```
+The primary outcome is:
 
-## CHoRUS execution boundary
+> Death occurring after 24 hours and within 30 days of encounter start.
 
-CHoRUS requires authorized access, a confirmed snapshot identifier, confirmed table/column mappings, and approved measurement-unit rules. SQL access is supplied only through named environment variables. The adapter selects configured columns, builds a server side temporary eligible acute cohort relation directly from mapped source tables, and joins large domains to that relation and their per-encounter predictor windows. It never uses `SELECT *` or a cohort-sized SQL `IN (...)` parameter list.
+Discharge-related variables are not used as predictors.
 
-`configs/chorus.paper.yaml` contains the expected paper counts but deliberately fails closed because the snapshot, site mappings, units, top 21 override, event counts, and release governance have not been confirmed:
+## Cohorts
 
-```bash
-make paper-preflight-chorus
-make paper-run-chorus
-make verify-paper-chorus
-```
+### CHoRUS
 
-Those commands must not be treated as successful until a controlled local override resolves every named field and an actual run passes reconciliation.
+The final CHoRUS analytic cohort contains:
 
-## Native MIMIC-IV execution boundary
+- 22,098 acute-care visits
+- 5,892 unique patients
+- 1,004 30-day mortality events
+- 4.5% mortality prevalence
 
-MIMIC-IV requires credentialed PhysioNet access. The native adapter reads projected columns from CSV, CSV.GZ, or Parquet using bounded chunks or Parquet predicate pushdown. Its required tables and fields are documented in [`docs/source_adapter_contract.md`](docs/source_adapter_contract.md).
+Eligible acute-care encounters include hospital, observation, inpatient, emergency, and combined emergency/inpatient visit types.
 
-Age is `anchor_age + (admission year - anchor_year)`. The current MIMIC paper configuration uses minimum age 0, an explicit task-level change from the historical script’s age 18. Paper mortality reproduces the completed date-level rule: normalize `admissions.deathtime` and `patients.dod`, choose the earliest date, exclude on/before the landmark date, and label through day 30. The generic native adapter also supports a separate explicit precision-preserving rule for nonpaper analyses. Medication concepts use the recovered GSN → NDC → formulary code → normalized drug-name hierarchy. Race/ethnicity and the seven acute admission categories reproduce the completed mapping. Paper extraction requires a qualifying native `hadm_id` and uses admission through hour 24 without shortening the predictor interval at an early discharge, matching the completed scripts; patient-time fallback and discharge-capped windows remain explicit nonpaper options. Native records without event IDs receive stable, multiplicity-preserving internal keys. Concepts are namespaced by source. `procedures_icd.chartdate` remains date-only and uses the recovered inclusive calendar-date-span rule rather than a fictitious timestamp window.
+### MIMIC-IV
 
-The completed scripts identify MIMIC-IV v3.1. `configs/mimiciv.paper.yaml` freezes that release and all recovered source rules:
+The MIMIC-IV replication cohort contains:
 
-```bash
-make paper-preflight-mimiciv
-make paper-run-mimiciv
-make verify-paper-mimiciv
-```
+- 23,000 acute-care visits
+- 10,006 unique patients
+- 819 30-day mortality events
+- 3.6% mortality prevalence
 
-The preflight command inspects configuration only and never opens a clinical source. Authorized execution supplies `MIMICIV_ROOT` and confirms `MIMICIV_RELEASE=v3.1`. Paper verification still requires actual count, selection, model, manuscript, and privacy reconciliation; configuration preflight alone is not a paper reproduction.
+MIMIC-IV version 3.1 is used.
 
-## Predictor window, outcome, and Charlson
+A reproducible patient-level subsampling procedure preserves complete patient clusters so that encounters from the same patient are not independently sampled across validation folds.
 
-`predictor_window_hours` controls extraction: `[admission, min(discharge when known, admission + predictor window))`.
+Across both datasets, the study includes:
 
-`landmark_hours` independently controls early death exclusion and prediction time. Configuration fails if the predictor window exceeds the landmark without a documented override.
+- 45,098 visits
+- 15,898 unique patients
 
-The non age Charlson score uses only diagnoses on prior acute admissions starting in the configured 365 day lookback and excludes the index admission. ICD-9-CM and ICD-10-CM are validated and classified separately using the Quan/Deyo algorithm, with diabetes, liver, and malignancy hierarchies. See [`docs/charlson.md`](docs/charlson.md).
+## Baseline features
 
-## Outputs and privacy
+Baseline vulnerability represents information available before or at the beginning of the acute-care encounter.
 
-Artifact states are `restricted`, `release_candidate_aggregate`, `public_clinical`, and `public_synthetic`. Real artifacts default to `restricted`; a real run does not write release-candidate tables to the public output root. Public clinical release requires an explicit allowlisted schema, governance-approved small-cell threshold, release approval, and a recorded successful `public_clinical` scan. An approval flag alone is insufficient. Unit audits are public only for synthetic runs by default.
+Predictors include:
 
-Analytical inputs are hashed from canonical, cohort restricted values, not only schemas and row counts. Fit manifests also hash the exact frozen training, validation, and preprocessing fit partitions and the fitted imputation/encoding/variance/scaling state. Manifests distinguish `feature_schema_hash` from `feature_value_hash` or `feature_matrix_hash`. The latter changes when any row identity, column order, or feature value changes without exposing those values.
+- Age at visit
+- Sex
+- Race
+- Ethnicity
+- Visit type
+- Prior visit count
+- Prior acute-care visit count
+- Indicator for prior utilization
+- Charlson Comorbidity Index
 
-See [`SECURITY_AND_PRIVACY.md`](SECURITY_AND_PRIVACY.md) and [`docs/output_dictionary.md`](docs/output_dictionary.md).
+Categorical variables are one-hot encoded for modeling.
 
-## Reproducibility status
+The CHoRUS baseline model matrix contains 21 model-ready features.
 
-The synthetic implementation, both adapters, leakage barriers, deterministic selection, and aggregate calculations are testable from a clean clone. Exact CHoRUS and MIMIC manuscript results require authorized data and successful reconciliation. A count mismatch writes attrition plus final, attrition stage, event stage, or fold/domain selection comparisons and a failed diagnostic manifest before stopping. Paper verification recomputes the actual top-50/top-21 evidence, OOF fold identity, and matrix hashes; it also requires manuscript reconciliation and a completed `public_clinical` release gate.
+The MIMIC-IV baseline data contain nine raw baseline predictors that yield 25 encoded model features after categorical encoding.
 
-One unified stage applies held out permutation SHAP to the selected model for every matrix and fold. It verifies a deterministic reconstruction of each selected fit against stored OOF probabilities, uses an outer training background and outer validation evaluation sample, preserves model feature order, and writes only fold-level mean absolute and cross-fold aggregate values.
+## Clinical-domain feature construction
 
-Methods-to-code traceability is in [`docs/manuscript_methods_crosswalk.md`](docs/manuscript_methods_crosswalk.md). Citation metadata is in `CITATION.cff`.
+### Physiological severity
 
-## License
+Physiological features are derived from measurements recorded during the predictor window.
 
-This repository is released under the MIT License. The license applies only to the code in this repository.
+For selected measurement concepts, visit-level summaries include:
 
-No patient-level CHoRUS or MIMIC-IV data are included or redistributed. Users are responsible for obtaining independent access to CHoRUS and/or MIMIC-IV and for complying with all applicable data-use agreements, institutional approvals, and governance requirements.
+- Mean
+- Minimum
+- Maximum
+- Standard deviation
+- Count
+- Missingness indicator
+
+Candidate physiological features are generated from frequently occurring measurement concepts.
+
+### Treatment exposure
+
+Treatment-exposure features are derived from medication records during the predictor window.
+
+Features include:
+
+- Medication exposure indicators
+- Medication exposure counts
+- Number of unique medications
+- Repeated medication exposure count
+- Time to first medication
+- Any-medication indicator
+
+### Procedure burden
+
+Procedure-burden features are derived from procedures recorded during the predictor window.
+
+Features include:
+
+- Procedure presence indicators
+- Procedure counts
+- Unique procedure count
+- Total procedure count
+- Any-procedure indicator
+
+## Feature selection
+
+Feature selection is performed independently within each cross-validation training fold.
+
+For each clinical domain, candidate features are ranked according to their occurrence frequency within the training partition.
+
+The 21 most frequently occurring domain features are retained and applied unchanged to the corresponding held-out validation partition.
+
+Selection is therefore performed without using information from the held-out fold.
+
+The same fold-specific feature set is reused across every feature matrix containing that clinical domain.
+
+This procedure standardizes the number of added features across clinical domains and limits information leakage.
+
+## Cross-validation
+
+Five-fold patient-level grouped cross-validation is used.
+
+All encounters belonging to the same patient remain in the same fold. This prevents encounters from one patient from appearing in both the training and validation partitions of the same cross-validation iteration.
+
+All preprocessing and feature-selection operations that depend on the data are fit using training-fold data only and then applied to the held-out fold.
+
+## Models
+
+Four machine-learning algorithms are evaluated for each feature matrix:
+
+- Logistic regression
+- Random forest
+- Gradient boosting
+- Light Gradient Boosting Machine (LightGBM)
+
+The primary analysis selects the algorithm with the highest mean cross-validated area under the precision-recall curve (AUPRC) for each feature matrix.
+
+Reported primary performance is summarized across held-out folds.
+
+A fixed-algorithm sensitivity analysis is also performed to evaluate whether the clinical-domain findings depend on matrix-specific algorithm selection.
+
+## Evaluation
+
+Primary model-performance measures include:
+
+- Area under the precision-recall curve (AUPRC)
+- Area under the receiver operating characteristic curve (AUROC)
+- Brier score
+
+Additional evaluation includes:
+
+- Calibration
+- Sensitivity at approximately 90% specificity
+- Positive predictive value at that operating point
+- Top-10% risk analysis
+- Decision-curve analysis
+- SHAP feature attribution
+- Pairwise top-feature interaction analysis
+- Age subgroup analysis
+- Sex subgroup analysis
+
+Scenario analyses additionally estimate the number of subsequently fatal encounters that would be identified under prespecified hypothetical improvements in sensitivity. These are scenario-based estimates and do not represent observed treatment effects or preventable deaths.
+
+## Repository structure
+
+```text
+.
+├── configs/                         # Dataset and analysis configuration
+├── docs/                            # Documentation and implementation notes
+├── examples/                        # Example workflows
+├── mappings/                        # Source-data mappings
+├── outputs/                         # Release-cleared/public outputs where applicable
+├── scripts/                         # Supporting analysis scripts
+├── src/clinical_domain_mortality/   # Core Python package
+├── synthetic_data/                  # Public synthetic demonstration data
+├── tests/                           # Automated tests
+├── run_pipeline.py                  # Pipeline entry point
+├── requirements.lock                # Pinned Python dependencies
+├── CITATION.cff
+├── DATA_AVAILABILITY.md
+├── SECURITY_AND_PRIVACY.md
+└── LICENSE
