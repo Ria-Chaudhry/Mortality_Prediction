@@ -150,11 +150,9 @@ Features include:
 
 Feature selection is performed independently within each cross-validation training fold.
 
-For each clinical domain, candidate features are ranked according to their occurrence frequency within the training partition.
+For each clinical domain, candidate features are ranked according to their correlation with the outcome using mutual information.
 
-The 21 most frequently occurring domain features are retained and applied unchanged to the corresponding held-out validation partition.
-
-Selection is therefore performed without using information from the held-out fold.
+The 21 most highly ranked features are retained and applied unchanged to the corresponding held-out validation partition.
 
 The same fold-specific feature set is reused across every feature matrix containing that clinical domain.
 
